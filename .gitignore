@@ -1,3 +1,28 @@
+# Build output (make build / make cli)
 build/
+bin/
+*.o
+*.dSYM/
+*.app
+*.dmg
+
+# macOS
 .DS_Store
-*.dSYM
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode / editors
+xcuserdata/
+DerivedData/
+*.xcworkspace/
+.vscode/
+.idea/
+*.swp
+
+# Logs and secrets
+*.log
+.env
+.env.*
