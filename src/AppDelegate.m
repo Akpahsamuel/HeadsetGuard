@@ -10,6 +10,7 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
     GuardStatus _currentStatus;
     NSString *_activeHeadsetName;
     AudioDeviceID _activeDeviceID;
+    BOOL _isPromptActive;
 }
 @property (nonatomic, strong) NSMenu *statusMenu;
 @property (nonatomic, strong) NSMenuItem *headerItem;
@@ -25,6 +26,7 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
     _currentStatus = GuardStatusIdle;
     _activeHeadsetName = nil;
     _activeDeviceID = kAudioObjectUnknown;
+    _isPromptActive = NO;
 
     // Set up Status Item in Menu Bar
     [self setupStatusItem];
@@ -234,11 +236,19 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
          details:[NSString stringWithFormat:@"'%@' connected -> Audio muted and locked", name]
             type:@"connect_lock"];
 
+    // Prevent duplicate concurrent prompts
+    if (_isPromptActive) {
+        NSLog(@"[AppDelegate] Unlock prompt already active. Skipping duplicate presentation.");
+        return;
+    }
+    _isPromptActive = YES;
+
     // Present unlock modal overlay
     __weak typeof(self) weakSelf = self;
     [[UnlockWindowController sharedController] presentForDevice:name completion:^(BOOL unlocked) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
+        strongSelf->_isPromptActive = NO;
 
         if (unlocked) {
             NSLog(@"[AppDelegate] Audio unlocked successfully for '%@'", strongSelf->_activeHeadsetName);
@@ -255,6 +265,7 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
 
 - (void)handleHeadsetDisconnected:(AudioDeviceID)deviceID name:(NSString *)name {
     NSLog(@"[AppDelegate] Headset disconnected: '%@'", name);
+    _isPromptActive = NO;
     _activeDeviceID = kAudioObjectUnknown;
     _activeHeadsetName = nil;
 
@@ -279,20 +290,35 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
         _activeHeadsetName = name;
         [[AudioGuard sharedGuard] lockDevice:devID];
         [self updateStatusIcon:GuardStatusLocked];
+
+        if (_isPromptActive) return;
+        _isPromptActive = YES;
+
+        __weak typeof(self) weakSelf = self;
         [[UnlockWindowController sharedController] presentForDevice:name completion:^(BOOL unlocked) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf->_isPromptActive = NO;
             if (unlocked) {
                 [[AudioGuard sharedGuard] unlockCurrentDevice];
-                [self updateStatusIcon:GuardStatusAuthorized];
+                [strongSelf updateStatusIcon:GuardStatusAuthorized];
             }
         }];
     }
 }
 
 - (void)unlockCurrentHeadset {
+    if (_isPromptActive) return;
+    _isPromptActive = YES;
+
+    __weak typeof(self) weakSelf = self;
     [[UnlockWindowController sharedController] presentForDevice:_activeHeadsetName completion:^(BOOL unlocked) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        strongSelf->_isPromptActive = NO;
         if (unlocked) {
             [[AudioGuard sharedGuard] unlockCurrentDevice];
-            [self updateStatusIcon:GuardStatusAuthorized];
+            [strongSelf updateStatusIcon:GuardStatusAuthorized];
         }
     }];
 }
@@ -301,6 +327,7 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
     if (_activeHeadsetName) {
         [[BluetoothManager sharedManager] disconnectDeviceNamed:_activeHeadsetName];
         [[AudioGuard sharedGuard] routeAudioToBuiltIn];
+        [[UnlockWindowController sharedController] dismissWindow];
         [self handleHeadsetDisconnected:_activeDeviceID name:_activeHeadsetName];
     }
 }
@@ -349,11 +376,16 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
 
 - (void)workspaceDidWake:(NSNotification *)note {
     NSLog(@"[AppDelegate] System woke up.");
-    if ([AudioGuard sharedGuard].isLocked) {
+    if ([AudioGuard sharedGuard].isLocked && !_isPromptActive) {
+        _isPromptActive = YES;
+        __weak typeof(self) weakSelf = self;
         [[UnlockWindowController sharedController] presentForDevice:_activeHeadsetName completion:^(BOOL unlocked) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            strongSelf->_isPromptActive = NO;
             if (unlocked) {
                 [[AudioGuard sharedGuard] unlockCurrentDevice];
-                [self updateStatusIcon:GuardStatusAuthorized];
+                [strongSelf updateStatusIcon:GuardStatusAuthorized];
             }
         }];
     }
@@ -384,7 +416,7 @@ typedef NS_ENUM(NSInteger, GuardStatus) {
 
 - (void)audioGuardDidDetectDefaultOutputChanged:(AudioDeviceID)deviceID name:(NSString *)name isBluetooth:(BOOL)isBluetooth {
     if (isBluetooth) {
-        if (_currentStatus != GuardStatusAuthorized || _activeDeviceID != deviceID) {
+        if (_currentStatus != GuardStatusAuthorized && _currentStatus != GuardStatusLocked && !_isPromptActive) {
             [self handleHeadsetConnected:deviceID name:name];
         }
     }

@@ -13,6 +13,7 @@ typedef void (^UnlockCompletionBlock)(BOOL unlocked);
 
 - (void)presentForDevice:(NSString *)deviceName completion:(nullable UnlockCompletionBlock)completion;
 - (void)dismissWindow;
+- (void)dismissWithCompletion:(BOOL)unlocked;
 
 @end
 

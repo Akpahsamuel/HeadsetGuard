@@ -33,9 +33,13 @@
 
 - (void)deviceConnectedNotification:(IOBluetoothUserNotification *)note device:(IOBluetoothDevice *)device {
     NSLog(@"[BluetoothManager] IOBluetooth notification: connected to '%@' (%@)", device.nameOrAddress, device.addressString);
-    if ([self.delegate respondsToSelector:@selector(bluetoothManagerDidDetectDeviceConnected:)]) {
+    if (![self isAudioDevice:device]) {
+        return;
+    }
+    id<BluetoothManagerDelegate> d = self.delegate;
+    if ([d respondsToSelector:@selector(bluetoothManagerDidDetectDeviceConnected:)]) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self.delegate bluetoothManagerDidDetectDeviceConnected:device];
+            [d bluetoothManagerDidDetectDeviceConnected:device];
         });
     }
 }

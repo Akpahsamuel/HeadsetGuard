@@ -4,7 +4,7 @@
 #import "AudioGuard.h"
 #import "BluetoothManager.h"
 
-static void PrintUsage() {
+static void PrintUsage(void) {
     printf("HeadsetGuard - Bluetooth Headset Security & Audio Locker for macOS\n\n");
     printf("Usage:\n");
     printf("  HeadsetGuard                 Run full menu bar application and security daemon\n");
@@ -63,10 +63,13 @@ static int RunCLI(int argc, const char * argv[]) {
         printf("\n=== Active CoreAudio Output Devices ===\n");
         NSArray<NSDictionary *> *outputs = [[AudioGuard sharedGuard] allOutputDevices];
         for (NSDictionary *info in outputs) {
+            NSString *devName = (NSString *)info[@"name"];
+            NSNumber *devIDNum = (NSNumber *)info[@"id"];
+            NSNumber *isBTNum = (NSNumber *)info[@"isBluetooth"];
             printf("  • %-30s [ID: %u, Bluetooth: %s]\n",
-                   [info[@"name"] UTF8String],
-                   [info[@"id"] unsignedIntValue],
-                   [info[@"isBluetooth"] boolValue] ? "YES" : "NO");
+                   devName.UTF8String,
+                   devIDNum.unsignedIntValue,
+                   isBTNum.boolValue ? "YES" : "NO");
         }
         return 0;
     }
@@ -106,10 +109,13 @@ static int RunCLI(int argc, const char * argv[]) {
             printf("No log entries recorded yet.\n");
         } else {
             for (NSDictionary *log in logs) {
+                NSString *timestamp = (NSString *)log[@"timestamp"];
+                NSString *event = (NSString *)log[@"event"];
+                NSString *details = (NSString *)log[@"details"];
                 printf("[%s] %-22s: %s\n",
-                       [log[@"timestamp"] UTF8String],
-                       [log[@"event"] UTF8String],
-                       [log[@"details"] UTF8String]);
+                       timestamp.UTF8String,
+                       event.UTF8String,
+                       details.UTF8String);
             }
         }
         return 0;

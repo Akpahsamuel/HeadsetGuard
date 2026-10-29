@@ -3,6 +3,9 @@
 
 @interface AudioGuard () {
     BOOL _isMonitoring;
+    BOOL _devicesListenerRegistered;
+    BOOL _defaultListenerRegistered;
+    dispatch_queue_t _guardQueue;
     dispatch_source_t _enforceTimer;
     Float32 _savedVolume;
     BOOL _savedMute;
@@ -49,6 +52,10 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 
 @implementation AudioGuard
 
+@synthesize isLocked = _isLocked;
+@synthesize lockedDeviceID = _lockedDeviceID;
+@synthesize lockedDeviceName = _lockedDeviceName;
+
 + (instancetype)sharedGuard {
     static AudioGuard *shared = nil;
     static dispatch_once_t onceToken;
@@ -62,6 +69,9 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
     self = [super init];
     if (self) {
         _isMonitoring = NO;
+        _devicesListenerRegistered = NO;
+        _defaultListenerRegistered = NO;
+        _guardQueue = dispatch_queue_create("com.security.HeadsetGuard.guardQueue", DISPATCH_QUEUE_SERIAL);
         _isLocked = NO;
         _lockedDeviceID = kAudioObjectUnknown;
         _lockedDeviceName = nil;
@@ -75,6 +85,44 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 
 - (void)dealloc {
     [self stopMonitoring];
+}
+
+#pragma mark - Thread-Safe Property Accessors
+
+- (BOOL)isLocked {
+    @synchronized(self) {
+        return _isLocked;
+    }
+}
+
+- (void)setIsLocked:(BOOL)isLocked {
+    @synchronized(self) {
+        _isLocked = isLocked;
+    }
+}
+
+- (AudioDeviceID)lockedDeviceID {
+    @synchronized(self) {
+        return _lockedDeviceID;
+    }
+}
+
+- (void)setLockedDeviceID:(AudioDeviceID)lockedDeviceID {
+    @synchronized(self) {
+        _lockedDeviceID = lockedDeviceID;
+    }
+}
+
+- (nullable NSString *)lockedDeviceName {
+    @synchronized(self) {
+        return _lockedDeviceName;
+    }
+}
+
+- (void)setLockedDeviceName:(nullable NSString *)lockedDeviceName {
+    @synchronized(self) {
+        _lockedDeviceName = [lockedDeviceName copy];
+    }
 }
 
 #pragma mark - Monitoring Lifecycle
@@ -99,6 +147,7 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
                                                       &devicesAddress,
                                                       AudioDevicesChangedListener,
                                                       (__bridge void *)self);
+    _devicesListenerRegistered = (status1 == noErr);
 
     // Listen for default output device changes
     AudioObjectPropertyAddress defaultAddress = {
@@ -110,33 +159,38 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
                                                       &defaultAddress,
                                                       DefaultOutputChangedListener,
                                                       (__bridge void *)self);
+    _defaultListenerRegistered = (status2 == noErr);
 
-    _isMonitoring = (status1 == noErr && status2 == noErr);
+    _isMonitoring = (_devicesListenerRegistered && _defaultListenerRegistered);
     return _isMonitoring;
 }
 
 - (void)stopMonitoring {
-    if (!_isMonitoring) return;
+    if (_devicesListenerRegistered) {
+        AudioObjectPropertyAddress devicesAddress = {
+            kAudioHardwarePropertyDevices,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        AudioObjectRemovePropertyListener(kAudioObjectSystemObject,
+                                          &devicesAddress,
+                                          AudioDevicesChangedListener,
+                                          (__bridge void *)self);
+        _devicesListenerRegistered = NO;
+    }
 
-    AudioObjectPropertyAddress devicesAddress = {
-        kAudioHardwarePropertyDevices,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    AudioObjectRemovePropertyListener(kAudioObjectSystemObject,
-                                      &devicesAddress,
-                                      AudioDevicesChangedListener,
-                                      (__bridge void *)self);
-
-    AudioObjectPropertyAddress defaultAddress = {
-        kAudioHardwarePropertyDefaultOutputDevice,
-        kAudioObjectPropertyScopeGlobal,
-        kAudioObjectPropertyElementMain
-    };
-    AudioObjectRemovePropertyListener(kAudioObjectSystemObject,
-                                      &defaultAddress,
-                                      DefaultOutputChangedListener,
-                                      (__bridge void *)self);
+    if (_defaultListenerRegistered) {
+        AudioObjectPropertyAddress defaultAddress = {
+            kAudioHardwarePropertyDefaultOutputDevice,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain
+        };
+        AudioObjectRemovePropertyListener(kAudioObjectSystemObject,
+                                          &defaultAddress,
+                                          DefaultOutputChangedListener,
+                                          (__bridge void *)self);
+        _defaultListenerRegistered = NO;
+    }
 
     [self stopEnforceTimer];
     _isMonitoring = NO;
@@ -157,6 +211,8 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 
     UInt32 deviceCount = dataSize / sizeof(AudioDeviceID);
     AudioDeviceID *devices = (AudioDeviceID *)malloc(dataSize);
+    if (!devices) return @[];
+
     status = AudioObjectGetPropertyData(kAudioObjectSystemObject, &propertyAddress, 0, NULL, &dataSize, devices);
     if (status != noErr) {
         free(devices);
@@ -245,8 +301,8 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
         kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain
     };
-    OSStatus status = AudioObjectGetPropertyData(deviceID, &transAddr, 0, NULL, &transSize, &transport);
-    if (status == noErr) {
+    OSStatus status = AudioObjectGetPropertyData(deviceID, &transAddr, 0, NULL, &transSize, &transport) == noErr;
+    if (status) {
         // 'blue' = 0x626c7565, 'blea' = 0x626c6561
         if (transport == kAudioDeviceTransportTypeBluetooth ||
             transport == kAudioDeviceTransportTypeBluetoothLE ||
@@ -264,8 +320,8 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
         kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain
     };
-    status = AudioObjectGetPropertyData(deviceID, &uidAddr, 0, NULL, &uidSize, &uid);
-    if (status == noErr && uid != NULL) {
+    status = AudioObjectGetPropertyData(deviceID, &uidAddr, 0, NULL, &uidSize, &uid) == noErr;
+    if (status && uid != NULL) {
         NSString *uidStr = (__bridge NSString *)uid;
         BOOL containsBT = [uidStr localizedCaseInsensitiveContainsString:@"bluetooth"] ||
                           [uidStr localizedCaseInsensitiveContainsString:@"bt_"];
@@ -333,11 +389,13 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
     };
     OSStatus status = AudioObjectSetPropertyData(deviceID, &volAddr, 0, NULL, size, &volume);
     
-    // Also try channels 1 and 2
-    volAddr.mElement = 1;
-    AudioObjectSetPropertyData(deviceID, &volAddr, 0, NULL, size, &volume);
-    volAddr.mElement = 2;
-    AudioObjectSetPropertyData(deviceID, &volAddr, 0, NULL, size, &volume);
+    // Only try channels 1 and 2 if main element fails (matching setDeviceMute)
+    if (status != noErr) {
+        volAddr.mElement = 1;
+        AudioObjectSetPropertyData(deviceID, &volAddr, 0, NULL, size, &volume);
+        volAddr.mElement = 2;
+        AudioObjectSetPropertyData(deviceID, &volAddr, 0, NULL, size, &volume);
+    }
     
     return (status == noErr);
 }
@@ -381,15 +439,17 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
     NSLog(@"[AudioGuard] Locking audio device: '%@' (ID: %u)", name, deviceID);
 
     // Save pre-lock volume and state if not currently locked
-    if (!self.isLocked) {
-        _savedVolume = [self deviceVolume:deviceID];
-        if (_savedVolume < 0.05f) _savedVolume = 0.5f; // reasonable restore default
-        _savedMute = [self isDeviceMuted:deviceID];
-    }
+    @synchronized(self) {
+        if (!_isLocked) {
+            _savedVolume = [self deviceVolume:deviceID];
+            if (_savedVolume < 0.05f) _savedVolume = 0.5f; // reasonable restore default
+            _savedMute = [self isDeviceMuted:deviceID];
+        }
 
-    self.lockedDeviceID = deviceID;
-    self.lockedDeviceName = name;
-    self.isLocked = YES;
+        _lockedDeviceID = deviceID;
+        _lockedDeviceName = name;
+        _isLocked = YES;
+    }
 
     // Immediately mute and zero volume
     [self setDeviceMute:deviceID muted:YES];
@@ -410,26 +470,32 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 }
 
 - (BOOL)unlockCurrentDevice {
-    if (!self.isLocked || self.lockedDeviceID == kAudioObjectUnknown) {
-        self.isLocked = NO;
-        self.lockedDeviceID = kAudioObjectUnknown;
-        self.lockedDeviceName = nil;
-        [self stopEnforceTimer];
-        return YES;
-    }
+    AudioDeviceID devID = kAudioObjectUnknown;
+    Float32 restoreVol = 0.5f;
 
-    AudioDeviceID devID = self.lockedDeviceID;
-    NSLog(@"[AudioGuard] Unlocking audio device: '%@' (ID: %u)", self.lockedDeviceName, devID);
+    @synchronized(self) {
+        if (!_isLocked || _lockedDeviceID == kAudioObjectUnknown) {
+            _isLocked = NO;
+            _lockedDeviceID = kAudioObjectUnknown;
+            _lockedDeviceName = nil;
+            [self stopEnforceTimer];
+            return YES;
+        }
+
+        devID = _lockedDeviceID;
+        restoreVol = _savedVolume;
+        NSLog(@"[AudioGuard] Unlocking audio device: '%@' (ID: %u)", _lockedDeviceName, devID);
+
+        _isLocked = NO;
+        _lockedDeviceID = kAudioObjectUnknown;
+        _lockedDeviceName = nil;
+    }
 
     [self stopEnforceTimer];
 
     // Restore volume and unmute
     [self setDeviceMute:devID muted:NO];
-    [self setDeviceVolume:devID volume:_savedVolume];
-
-    self.isLocked = NO;
-    self.lockedDeviceID = kAudioObjectUnknown;
-    self.lockedDeviceName = nil;
+    [self setDeviceVolume:devID volume:restoreVol];
 
     return YES;
 }
@@ -439,8 +505,7 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 - (void)startEnforceTimer {
     [self stopEnforceTimer];
 
-    dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
-    _enforceTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+    _enforceTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _guardQueue);
     
     // Check every 200 milliseconds to clamp any unauthorized volume adjustment
     dispatch_source_set_timer(_enforceTimer, dispatch_walltime(NULL, 0), 200 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
@@ -448,11 +513,16 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
     __weak typeof(self) weakSelf = self;
     dispatch_source_set_event_handler(_enforceTimer, ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
-        if (!strongSelf || !strongSelf.isLocked || strongSelf.lockedDeviceID == kAudioObjectUnknown) {
-            return;
+        if (!strongSelf) return;
+
+        AudioDeviceID devID = kAudioObjectUnknown;
+        @synchronized(strongSelf) {
+            if (!strongSelf->_isLocked || strongSelf->_lockedDeviceID == kAudioObjectUnknown) {
+                return;
+            }
+            devID = strongSelf->_lockedDeviceID;
         }
 
-        AudioDeviceID devID = strongSelf.lockedDeviceID;
         BOOL isMuted = [strongSelf isDeviceMuted:devID];
         Float32 vol = [strongSelf deviceVolume:devID];
 
@@ -461,11 +531,12 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
             [strongSelf setDeviceMute:devID muted:YES];
             [strongSelf setDeviceVolume:devID volume:0.0f];
 
-            if ([strongSelf.delegate respondsToSelector:@selector(audioGuardDidInterceptVolumeTamperOnDevice:)]) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [strongSelf.delegate audioGuardDidInterceptVolumeTamperOnDevice:devID];
-                });
-            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                id<AudioGuardDelegate> d = strongSelf.delegate;
+                if ([d respondsToSelector:@selector(audioGuardDidInterceptVolumeTamperOnDevice:)]) {
+                    [d audioGuardDidInterceptVolumeTamperOnDevice:devID];
+                }
+            });
         }
     });
 
@@ -498,26 +569,34 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 
     _knownBluetoothDevices = [currentSet copy];
 
+    id<AudioGuardDelegate> d = self.delegate;
+
     for (NSNumber *devNum in added) {
         AudioDeviceID devID = [devNum unsignedIntValue];
         NSString *name = [self deviceNameForID:devID];
         NSLog(@"[AudioGuard] Bluetooth audio device CONNECTED: '%@' (ID: %u)", name, devID);
-        if ([self.delegate respondsToSelector:@selector(audioGuardDidDetectBluetoothDeviceConnected:name:)]) {
-            [self.delegate audioGuardDidDetectBluetoothDeviceConnected:devID name:name ?: @"Bluetooth Headset"];
+        if ([d respondsToSelector:@selector(audioGuardDidDetectBluetoothDeviceConnected:name:)]) {
+            [d audioGuardDidDetectBluetoothDeviceConnected:devID name:name ?: @"Bluetooth Headset"];
         }
     }
 
     for (NSNumber *devNum in removed) {
         AudioDeviceID devID = [devNum unsignedIntValue];
-        if (devID == self.lockedDeviceID) {
+        BOOL wasLocked = NO;
+        @synchronized(self) {
+            if (devID == _lockedDeviceID) {
+                wasLocked = YES;
+                _isLocked = NO;
+                _lockedDeviceID = kAudioObjectUnknown;
+                _lockedDeviceName = nil;
+            }
+        }
+        if (wasLocked) {
             NSLog(@"[AudioGuard] Currently locked device disconnected.");
-            self.isLocked = NO;
-            self.lockedDeviceID = kAudioObjectUnknown;
-            self.lockedDeviceName = nil;
             [self stopEnforceTimer];
         }
-        if ([self.delegate respondsToSelector:@selector(audioGuardDidDetectBluetoothDeviceDisconnected:name:)]) {
-            [self.delegate audioGuardDidDetectBluetoothDeviceDisconnected:devID name:@"Bluetooth Headset"];
+        if ([d respondsToSelector:@selector(audioGuardDidDetectBluetoothDeviceDisconnected:name:)]) {
+            [d audioGuardDidDetectBluetoothDeviceDisconnected:devID name:@"Bluetooth Headset"];
         }
     }
 }
@@ -529,8 +608,9 @@ static OSStatus DefaultOutputChangedListener(AudioObjectID inObjectID,
 
     NSLog(@"[AudioGuard] Default output changed to '%@' (ID: %u, Bluetooth: %@)", name, defID, isBT ? @"YES" : @"NO");
 
-    if ([self.delegate respondsToSelector:@selector(audioGuardDidDetectDefaultOutputChanged:name:isBluetooth:)]) {
-        [self.delegate audioGuardDidDetectDefaultOutputChanged:defID name:name ?: @"Unknown" isBluetooth:isBT];
+    id<AudioGuardDelegate> d = self.delegate;
+    if ([d respondsToSelector:@selector(audioGuardDidDetectDefaultOutputChanged:name:isBluetooth:)]) {
+        [d audioGuardDidDetectDefaultOutputChanged:defID name:name ?: @"Unknown" isBluetooth:isBT];
     }
 }
 

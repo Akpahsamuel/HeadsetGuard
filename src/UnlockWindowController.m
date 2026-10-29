@@ -220,8 +220,17 @@
     }
 }
 
-- (void)dismissWindow {
+- (void)dismissWithCompletion:(BOOL)unlocked {
     [self.window orderOut:nil];
+    UnlockCompletionBlock completion = self.onCompletion;
+    self.onCompletion = nil;
+    if (completion) {
+        completion(unlocked);
+    }
+}
+
+- (void)dismissWindow {
+    [self dismissWithCompletion:NO];
 }
 
 #pragma mark - Actions
@@ -259,12 +268,16 @@
     SecurityManager *sm = [SecurityManager sharedManager];
     NSString *reason = [NSString stringWithFormat:@"Authorize audio output for %@", self.deviceName ?: @"Bluetooth Headset"];
 
+    __weak typeof(self) weakSelf = self;
     [sm authenticateWithBiometricsWithReason:reason completion:^(BOOL success, NSError * _Nullable error) {
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
         if (success) {
-            [self handleSuccessfulUnlock];
+            [strongSelf handleSuccessfulUnlock];
         } else if (error && error.code != LAErrorUserCancel) {
-            self.errorLabel.stringValue = @"Touch ID verification failed";
-            [self shakeWindow];
+            strongSelf.errorLabel.stringValue = @"Touch ID verification failed";
+            [strongSelf shakeWindow];
         }
     }];
 }
@@ -277,11 +290,7 @@
 
     [[BluetoothManager sharedManager] disconnectDeviceNamed:self.deviceName];
     [[AudioGuard sharedGuard] routeAudioToBuiltIn];
-    [self dismissWindow];
-
-    if (self.onCompletion) {
-        self.onCompletion(NO);
-    }
+    [self dismissWithCompletion:NO];
 }
 
 #pragma mark - Unlock Flow
@@ -300,11 +309,11 @@
         self.iconImageView.contentTintColor = [NSColor systemGreenColor];
     }
 
+    __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self dismissWindow];
-        if (self.onCompletion) {
-            self.onCompletion(YES);
-        }
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        [strongSelf dismissWithCompletion:YES];
     });
 }
 
@@ -323,8 +332,11 @@
         self.errorLabel.stringValue = @"Security Limit Reached! Disconnecting...";
         
         if ([sm boolSetting:kSecuritySettingAutoDisconnectOnFailure defaultValue:YES]) {
+            __weak typeof(self) weakSelf = self;
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self disconnectAction:nil];
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (!strongSelf) return;
+                [strongSelf disconnectAction:nil];
             });
         }
     }
@@ -333,8 +345,10 @@
 }
 
 - (void)shakeWindow {
-    CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"frameOrigin.x"];
-    CGFloat currentX = self.window.frame.origin.x;
+    CALayer *layer = self.window.contentView.layer;
+    if (!layer) return;
+    CGFloat currentX = layer.position.x;
+    CAKeyframeAnimation *shake = [CAKeyframeAnimation animationWithKeyPath:@"position.x"];
     shake.values = @[
         @(currentX),
         @(currentX - 12),
@@ -346,7 +360,7 @@
         @(currentX)
     ];
     shake.duration = 0.4;
-    [self.window.contentView.layer addAnimation:shake forKey:@"shakeAnimation"];
+    [layer addAnimation:shake forKey:@"shakeAnimation"];
 }
 
 @end
