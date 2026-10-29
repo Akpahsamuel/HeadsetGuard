@@ -5,5 +5,4 @@
 #import "BluetoothManager.h"
 #import "PreferencesWindowController.h"
 #import "SecurityManager.h"
-#import "UnlockWindowController.h"
 

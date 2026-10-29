@@ -1,5 +1,11 @@
 #import "AppDelegate.h"
 
+@interface UnlockWindowController : NSWindowController
++ (instancetype)sharedController;
+- (void)presentForDevice:(nullable NSString *)deviceName completion:(nullable void(^)(BOOL unlocked))completion;
+- (void)dismissWindow;
+@end
+
 typedef NS_ENUM(NSInteger, GuardStatus) {
     GuardStatusIdle,
     GuardStatusLocked,
