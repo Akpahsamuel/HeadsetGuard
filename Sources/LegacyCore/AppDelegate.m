@@ -6,6 +6,11 @@
 - (void)dismissWindow;
 @end
 
+@interface PreferencesWindowController : NSWindowController
++ (instancetype)sharedController;
+- (void)showPreferences;
+@end
+
 typedef NS_ENUM(NSInteger, GuardStatus) {
     GuardStatusIdle,
     GuardStatusLocked,
