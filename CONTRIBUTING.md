@@ -10,6 +10,7 @@ Requirements: macOS 11+ and the Xcode Command Line Tools (`xcode-select --instal
 git clone https://github.com/Akpahsamuel/HeadsetGuard.git
 cd HeadsetGuard
 make build      # compile and package build/HeadsetGuard.app
+make test       # run the automated test suite
 make run        # launch it
 make cli        # create bin/headsetguard symlink for CLI testing
 make clean      # remove build/ and bin/

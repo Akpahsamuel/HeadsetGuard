@@ -1,6 +1,7 @@
 # Build output (make build / make cli)
 build/
 bin/
+.build/
 *.o
 *.dSYM/
 *.app
@@ -26,6 +27,7 @@ DerivedData/
 AGENTS.md
 CLAUDE.md
 .claude/
+docs/superpowers/
 
 # Logs and secrets
 *.log
