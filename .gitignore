@@ -22,6 +22,11 @@ DerivedData/
 .idea/
 *.swp
 
+# Local AI agent instructions (never committed)
+AGENTS.md
+CLAUDE.md
+.claude/
+
 # Logs and secrets
 *.log
 .env
