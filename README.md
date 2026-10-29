@@ -1,6 +1,13 @@
 # HeadsetGuard 🎧🔒
 ### Bluetooth Headset Audio Locker & Security Gatekeeper for macOS
 
+[![Build](https://github.com/Akpahsamuel/HeadsetGuard/actions/workflows/build.yml/badge.svg)](https://github.com/Akpahsamuel/HeadsetGuard/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Platform: macOS 11+](https://img.shields.io/badge/platform-macOS%2011%2B-lightgrey)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+HeadsetGuard is free and open source. Contributions are welcome, see [Contributing](#-contributing).
+
 **HeadsetGuard** brings password and biometric authentication to your Bluetooth headsets and earbuds (including AirPods, Sony WH-1000XM, Samsung Galaxy Buds, Bose QC, and generic Bluetooth audio devices).
 
 ---
@@ -25,7 +32,7 @@ Standard off-the-shelf Bluetooth headsets use fixed firmware pairing (typically 
   - `🔒` Headset Connected & **LOCKED** (Audio muted)
   - `🔓` Headset Connected & **AUTHORIZED** (Audio active)
 - **Authentication Methods**:
-  - Custom Master PIN / Password (salted SHA-256 PBKDF2 with 10,000 iterations)
+  - Custom Master PIN / Password (salted SHA-256 PBKDF2 with 310,000 iterations, stored in the macOS Keychain)
   - Touch ID / Apple Watch / macOS User authentication via `LocalAuthentication`
 - **Preferences & Security Dashboard**:
   - **General**: Toggle auto-lock on connect, strict mute clamp, lock on sleep/screen-lock.
@@ -40,7 +47,12 @@ Standard off-the-shelf Bluetooth headsets use fixed firmware pairing (typically 
 ## 🚀 Quick Start
 
 ### 1. Build and Run
-From the project directory:
+Requires macOS 11+ and the Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+git clone https://github.com/Akpahsamuel/HeadsetGuard.git
+cd HeadsetGuard
+```
 ```bash
 # Build the native macOS app bundle
 make build
@@ -96,6 +108,8 @@ make logs
 ```
 Headset_Security/
 ├── Makefile                          # Build system & packaging targets
+├── LICENSE / CONTRIBUTING.md / SECURITY.md / CODE_OF_CONDUCT.md
+├── .github/                          # CI workflow, issue & PR templates
 ├── resources/
 │   ├── Info.plist                    # App bundle metadata (LSUIElement agent)
 │   ├── AppIcon.icns                  # High-resolution macOS application icon
@@ -119,3 +133,25 @@ To have HeadsetGuard launch automatically whenever you turn on or log into your 
 2. Click the **`+`** button under "Open at Login".
 3. Select `/Applications/HeadsetGuard.app` (or `build/HeadsetGuard.app`).
 4. HeadsetGuard will now automatically guard your headsets whenever your Mac starts!
+
+---
+
+## 🤝 Contributing
+
+Contributions of all kinds are welcome: bug reports, headset compatibility notes, docs, tests, and code. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Ideas that would help most:
+- Compatibility testing across headset brands and macOS versions
+- An automated test target
+- Localization
+- Signed and notarized release builds
+
+## 🔐 Security
+
+Found a vulnerability? Please don't open a public issue. See [SECURITY.md](SECURITY.md) for private reporting.
+
+HeadsetGuard is a software gatekeeper on your Mac. It cannot stop someone from using the headset with another device.
+
+## 📄 License
+
+Released under the [MIT License](LICENSE).
