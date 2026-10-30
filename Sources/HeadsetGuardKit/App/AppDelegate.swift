@@ -30,7 +30,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         super.init()
         let audio = AudioGuard.shared()
         let auth = UnlockWindowAdapter()
-        let link = BluetoothManager.shared()
+        let link = BluetoothManager.shared
         self.coordinator = LockCoordinator(audio: audio, auth: auth, link: link)
     }
 
@@ -43,7 +43,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         setupStatusItem()
 
         let ag = AudioGuard.shared()
-        let bm = BluetoothManager.shared()
+        let bm = BluetoothManager.shared
         ag.delegate = self
         bm.delegate = self
 
@@ -72,7 +72,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
             AudioGuard.shared().unlockCurrentDevice()
         }
         AudioGuard.shared().stopMonitoring()
-        BluetoothManager.shared().stopMonitoring()
+        BluetoothManager.shared.stopMonitoring()
     }
 
     // MARK: - Menu Bar Setup
@@ -294,7 +294,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
     @objc public func disconnectCurrentHeadset() {
         if let name = activeHeadsetName {
-            BluetoothManager.shared().disconnectDeviceNamed(name)
+            BluetoothManager.shared.disconnectDevice(named: name)
             AudioGuard.shared().routeAudioToBuiltIn()
             UnlockWindowController.shared.dismissWindow()
             handleHeadsetDisconnected(activeDeviceID, name: name)

@@ -26,8 +26,7 @@ extension AudioGuard: AudioControlling {}
 
 extension BluetoothManager: LinkDropping {
     public func disconnect(deviceNamed: String) -> Bool {
-        self.disconnectDeviceNamed(deviceNamed)
-        return true
+        return self.disconnectDevice(named: deviceNamed)
     }
 }
 

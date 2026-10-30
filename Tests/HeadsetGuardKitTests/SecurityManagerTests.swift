@@ -6,7 +6,6 @@ struct SecurityManagerTests {
     @Test("Legacy credentials in defaults migrate to store and are deleted from defaults")
     func testLegacyCredentialMigration() {
         let store = InMemoryCredentialStore()
-        let settings = InMemorySettingsStore()
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("audit_test_\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: fileURL) }

@@ -62,7 +62,7 @@ public struct CLIRunner {
 
         case .list:
             print("=== Paired Bluetooth Audio Devices ===")
-            let paired = BluetoothManager.shared().pairedAudioDevices()
+            let paired = BluetoothManager.shared.pairedAudioDevices()
             if paired.isEmpty {
                 print("No paired Bluetooth audio devices found.")
             } else {
@@ -115,7 +115,7 @@ public struct CLIRunner {
             let defID = ag.defaultOutputDeviceID()
             let name = ag.deviceName(forID: defID)
             if !name.isEmpty {
-                BluetoothManager.shared().disconnectDeviceNamed(name)
+                BluetoothManager.shared.disconnectDevice(named: name)
                 ag.routeAudioToBuiltIn()
                 print("Disconnected '\(name)' and restored audio to built-in speakers.")
                 return 0

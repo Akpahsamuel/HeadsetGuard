@@ -276,7 +276,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
                                           details: "User rejected and disconnected \(target)",
                                           type: "disconnect")
 
-        BluetoothManager.shared().disconnectDeviceNamed(target)
+        BluetoothManager.shared.disconnectDevice(named: target)
         AudioGuard.shared().routeAudioToBuiltIn()
         dismiss(unlocked: false)
     }

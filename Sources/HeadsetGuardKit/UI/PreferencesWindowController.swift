@@ -441,7 +441,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     private func reloadPairedDevices() {
-        pairedDevices = BluetoothManager.shared().pairedAudioDevices()
+        pairedDevices = BluetoothManager.shared.pairedAudioDevices()
         devicesTableView?.reloadData()
     }
 
