@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import HeadsetGuardKit
 
@@ -29,5 +30,10 @@ struct PasswordHasherTests {
             let hDifferent = PasswordHasher.hash(pass + "_different", salt: salt)
             #expect(h1 != hDifferent)
         }
+    }
+
+    @Test("Empty salt fails closed")
+    func testEmptySaltFailsClosed() {
+        #expect(PasswordHasher.hash("password", salt: Data()) == "")
     }
 }

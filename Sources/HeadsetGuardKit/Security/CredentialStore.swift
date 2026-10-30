@@ -1,20 +1,29 @@
 import Foundation
 import Security
 
+public enum CredentialStoreError: Error, Equatable {
+    case keychainError(OSStatus)
+    case corruptData
+}
+
 public protocol CredentialStore: AnyObject {
-    func load() -> (hash: String, salt: Data)?
+    func load() throws -> (hash: String, salt: Data)?
     func save(hash: String, salt: Data) -> Bool
     func clear()
 }
 
 public final class InMemoryCredentialStore: CredentialStore {
     private var stored: (hash: String, salt: Data)?
+    public var shouldThrowError: CredentialStoreError?
 
     public init(stored: (hash: String, salt: Data)? = nil) {
         self.stored = stored
     }
 
-    public func load() -> (hash: String, salt: Data)? {
+    public func load() throws -> (hash: String, salt: Data)? {
+        if let err = shouldThrowError {
+            throw err
+        }
         return stored
     }
 
@@ -52,7 +61,7 @@ public final class KeychainCredentialStore: CredentialStore {
         return try? JSONSerialization.data(withJSONObject: payload)
     }
 
-    public func load() -> (hash: String, salt: Data)? {
+    public func load() throws -> (hash: String, salt: Data)? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
@@ -63,11 +72,22 @@ public final class KeychainCredentialStore: CredentialStore {
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else {
+
+        if status == errSecItemNotFound {
             return nil
         }
 
-        return Self.parse(data: data)
+        guard status == errSecSuccess else {
+            NSLog("[KeychainCredentialStore] SecItemCopyMatching failed with OSStatus: %d", status)
+            throw CredentialStoreError.keychainError(status)
+        }
+
+        guard let data = result as? Data, let parsed = Self.parse(data: data) else {
+            NSLog("[KeychainCredentialStore] Failed to parse Keychain JSON data.")
+            throw CredentialStoreError.corruptData
+        }
+
+        return parsed
     }
 
     public func save(hash: String, salt: Data) -> Bool {
@@ -81,14 +101,28 @@ public final class KeychainCredentialStore: CredentialStore {
             kSecAttrAccount as String: Self.account
         ]
 
-        SecItemDelete(query as CFDictionary)
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
 
-        var attributes = query
-        attributes[kSecValueData as String] = data
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+        // Try updating existing item in-place first (atomic - old password is NOT deleted)
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
 
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        return status == errSecSuccess
+        // If item did not exist yet, add it
+        if updateStatus == errSecItemNotFound {
+            var addAttributes = query
+            addAttributes[kSecValueData as String] = data
+            addAttributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            let addStatus = SecItemAdd(addAttributes as CFDictionary, nil)
+            return addStatus == errSecSuccess
+        }
+
+        NSLog("[KeychainCredentialStore] SecItemUpdate failed with OSStatus: %d", updateStatus)
+        return false
     }
 
     public func clear() {

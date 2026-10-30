@@ -288,20 +288,26 @@ public final class AudioGuard: NSObject {
         }
         guard devID != AudioObjectID(kAudioObjectUnknown) else { return }
 
-        let isMuted = hal.isMuted(devID) ?? true
-        let vol = hal.volume(devID) ?? 0.0
+        let maybeMuted = hal.isMuted(devID)
+        let maybeVol = hal.volume(devID)
 
-        if !isMuted || vol > 0.001 {
-            NSLog("[AudioGuard] Tamper detected! Headset tried to unmute (Mute: %d, Vol: %.2f). Re-muting.", isMuted ? 1 : 0, vol)
+        // Fail closed: if we cannot verify the device is muted and at zero volume, re-mute immediately!
+        let isConfirmedSilent = (maybeMuted == true) && (maybeVol != nil && maybeVol! <= 0.001)
+
+        if !isConfirmedSilent {
+            NSLog("[AudioGuard] Enforcement triggered: device unmuted or read failed (Mute: \(String(describing: maybeMuted)), Vol: \(String(describing: maybeVol))). Re-muting.")
             _ = hal.setMuted(true, devID)
             _ = hal.setVolume(0.0, devID)
 
-            let d = self.delegate
-            if Thread.isMainThread {
-                d?.audioGuardDidInterceptVolumeTamper?(onDevice: devID)
-            } else {
-                DispatchQueue.main.async {
+            // If it was a physical/external tamper (confirmed unmuted or vol > 0.001), notify delegate
+            if maybeMuted == false || (maybeVol ?? 0.0) > 0.001 {
+                let d = self.delegate
+                if Thread.isMainThread {
                     d?.audioGuardDidInterceptVolumeTamper?(onDevice: devID)
+                } else {
+                    DispatchQueue.main.async {
+                        d?.audioGuardDidInterceptVolumeTamper?(onDevice: devID)
+                    }
                 }
             }
         }

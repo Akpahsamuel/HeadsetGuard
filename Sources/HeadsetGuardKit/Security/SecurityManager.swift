@@ -24,11 +24,33 @@ public final class SecurityManager: NSObject {
     private let settings: SettingsStore
     private var auditLog: AuditLog
 
-    @objc public var failedAttemptsCount: Int = 0
+    private let stateLock = NSLock()
+    private var _failedAttemptsCount: Int = 0
+
+    @objc public var failedAttemptsCount: Int {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return _failedAttemptsCount
+        }
+        set {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            _failedAttemptsCount = newValue
+        }
+    }
 
     @objc public var isPasswordConfigured: Bool {
-        guard let creds = store.load() else { return false }
-        return !creds.hash.isEmpty && !creds.salt.isEmpty
+        do {
+            guard let creds = try store.load() else { return false }
+            return !creds.hash.isEmpty && !creds.salt.isEmpty
+        } catch {
+            // Keychain read error: FAIL CLOSED.
+            // Returning true ensures the unlock window treats the system as secured
+            // and does not allow unauthorized first-time password overwrite!
+            NSLog("[SecurityManager] Error loading credentials from Keychain: \(error). Failing closed as configured.")
+            return true
+        }
     }
 
     @objc public var biometricsAvailable: Bool {
@@ -85,7 +107,7 @@ public final class SecurityManager: NSObject {
         }
 
         let hash = PasswordHasher.hash(password, salt: salt)
-        guard store.save(hash: hash, salt: salt) else {
+        guard !hash.isEmpty, store.save(hash: hash, salt: salt) else {
             throw NSError(domain: "HeadsetGuard",
                           code: 1003,
                           userInfo: [NSLocalizedDescriptionKey: "Failed to save credentials to macOS Keychain."])
@@ -107,13 +129,33 @@ public final class SecurityManager: NSObject {
         try setupMasterPassword(newPassword)
     }
 
+    private func constantTimeCompare(_ a: String, _ b: String) -> Bool {
+        guard let aData = a.data(using: .utf8), let bData = b.data(using: .utf8) else { return false }
+        guard aData.count == bData.count else { return false }
+        var diff: UInt8 = 0
+        for (x, y) in zip(aData, bData) {
+            diff |= (x ^ y)
+        }
+        return diff == 0
+    }
+
     @objc public func verifyPassword(_ password: String) -> Bool {
-        guard let creds = store.load() else {
+        let creds: (hash: String, salt: Data)?
+        do {
+            creds = try store.load()
+        } catch {
+            NSLog("[SecurityManager] Keychain error during verification: \(error)")
+            failedAttemptsCount += 1
+            logEvent("Password Failed", details: "Keychain read error: \(error.localizedDescription)", type: "auth_failure")
+            return false
+        }
+
+        guard let creds = creds, !creds.hash.isEmpty, !creds.salt.isEmpty else {
             return false
         }
 
         let testHash = PasswordHasher.hash(password, salt: creds.salt)
-        let valid = (testHash == creds.hash)
+        let valid = !testHash.isEmpty && constantTimeCompare(testHash, creds.hash)
 
         if valid {
             failedAttemptsCount = 0

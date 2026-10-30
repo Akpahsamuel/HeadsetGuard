@@ -22,7 +22,18 @@ build:
 
 test:
 	@echo "==> Running tests..."
-	@swift test $(TEST_FLAGS)
+	@output=$$(swift test $(TEST_FLAGS) 2>&1) ; \
+	status=$$? ; \
+	echo "$$output" ; \
+	if [ $$status -ne 0 ]; then \
+		echo "==> Tests failed with exit code $$status" >&2; \
+		exit $$status; \
+	fi; \
+	if ! echo "$$output" | grep -q "passed after"; then \
+		echo "==> ERROR: No tests were executed! (Zero tests found or test runner failed to launch)" >&2; \
+		exit 1; \
+	fi; \
+	echo "==> Test suite verified successfully."
 
 install: build
 	@echo "==> Installing $(APP_NAME) to /Applications..."

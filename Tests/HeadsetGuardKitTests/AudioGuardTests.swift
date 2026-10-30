@@ -133,6 +133,8 @@ struct AudioGuardTests {
 
         guardObj.enforceMuteTick()
         #expect(guardObj.isLocked)
+        #expect(fake.mutes[303] == true)
+        #expect(fake.volumes[303] == 0.0)
     }
 
     @Test("routeAudioToBuiltIn picks built-in device and fails when none exists")

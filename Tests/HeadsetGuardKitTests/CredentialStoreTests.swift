@@ -1,23 +1,44 @@
+import Foundation
+import Security
 import Testing
 @testable import HeadsetGuardKit
 
 @Suite("Credential Store Tests")
 struct CredentialStoreTests {
     @Test("InMemoryCredentialStore round-trips")
-    func testInMemoryRoundTrip() {
+    func testInMemoryRoundTrip() throws {
         let store = InMemoryCredentialStore()
-        #expect(store.load() == nil)
+        #expect(try store.load() == nil)
 
         let salt = Data(repeating: 0x42, count: 32)
         let success = store.save(hash: "testHash", salt: salt)
         #expect(success)
 
-        let loaded = store.load()
+        let loaded = try store.load()
         #expect(loaded?.hash == "testHash")
         #expect(loaded?.salt == salt)
 
         store.clear()
-        #expect(store.load() == nil)
+        #expect(try store.load() == nil)
+    }
+
+    @Test("Keychain read error fails closed in SecurityManager")
+    func testKeychainErrorFailsClosed() {
+        let store = InMemoryCredentialStore()
+        store.shouldThrowError = .keychainError(errSecAuthFailed)
+
+        let settings = InMemorySettingsStore()
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent("audit_err_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let log = AuditLog(fileURL: fileURL)
+
+        let sm = SecurityManager(store: store, settings: settings, log: log)
+        // Must fail closed: treat as configured so attacker cannot trigger first-time setup
+        #expect(sm.isPasswordConfigured == true)
+        // Must reject any verification
+        #expect(sm.verifyPassword("anyPassword") == false)
+        #expect(sm.failedAttemptsCount == 1)
     }
 
     @Test("KeychainCredentialStore JSON decode round-trips and malformed blob returns nil")

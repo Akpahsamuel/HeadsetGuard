@@ -1,10 +1,11 @@
+import Foundation
 import Testing
 @testable import HeadsetGuardKit
 
 @Suite("Security Manager Tests")
 struct SecurityManagerTests {
     @Test("Legacy credentials in defaults migrate to store and are deleted from defaults")
-    func testLegacyCredentialMigration() {
+    func testLegacyCredentialMigration() throws {
         let store = InMemoryCredentialStore()
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("audit_test_\(UUID().uuidString).json")
@@ -22,8 +23,8 @@ struct SecurityManagerTests {
 
         let manager = SecurityManager(store: store, settings: seededSettings, log: log)
         #expect(manager.isPasswordConfigured)
-        #expect(store.load()?.hash == testHash)
-        #expect(store.load()?.salt == testSalt)
+        #expect(try store.load()?.hash == testHash)
+        #expect(try store.load()?.salt == testSalt)
 
         // Defaults should have them removed
         #expect(seededSettings.string(forKey: "MasterPasswordHash") == nil)

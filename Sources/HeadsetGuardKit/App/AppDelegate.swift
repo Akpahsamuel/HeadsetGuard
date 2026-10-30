@@ -68,7 +68,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     public func applicationWillTerminate(_ notification: Notification) {
         NSLog("[AppDelegate] HeadsetGuard terminating.")
         if AudioGuard.shared.isLocked {
-            AudioGuard.shared.unlockCurrentDevice()
+            // Fail closed: do not restore/unmute audio for a locked headset on termination
+            _ = AudioGuard.shared.routeAudioToBuiltIn()
         }
         AudioGuard.shared.stopMonitoring()
         BluetoothManager.shared.stopMonitoring()
@@ -325,6 +326,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     }
 
     @objc private func quitMenuClicked(_ sender: Any?) {
+        if AudioGuard.shared.isLocked {
+            UnlockWindowController.shared.present(for: activeHeadsetName ?? "Bluetooth Headset") { unlocked in
+                if unlocked {
+                    NSApp.terminate(nil)
+                }
+            }
+            return
+        }
         NSApp.terminate(nil)
     }
 

@@ -6,11 +6,11 @@ public enum PasswordHasher {
     public static let iterations: UInt32 = 310_000
 
     public static func hash(_ password: String, salt: Data) -> String {
-        guard let passwordData = password.data(using: .utf8) else { return "" }
+        guard let passwordData = password.data(using: .utf8), !salt.isEmpty else { return "" }
         var derivedKey = [UInt8](repeating: 0, count: 32)
 
-        _ = passwordData.withUnsafeBytes { passBytes in
-            salt.withUnsafeBytes { saltBytes in
+        let status = passwordData.withUnsafeBytes { passBytes -> Int32 in
+            salt.withUnsafeBytes { saltBytes -> Int32 in
                 CCKeyDerivationPBKDF(
                     CCPBKDFAlgorithm(kCCPBKDF2),
                     passBytes.baseAddress?.assumingMemoryBound(to: Int8.self),
@@ -24,6 +24,12 @@ public enum PasswordHasher {
                 )
             }
         }
+
+        guard status == kCCSuccess else {
+            NSLog("[PasswordHasher] CCKeyDerivationPBKDF failed with status: %d", status)
+            return ""
+        }
+
         return Data(derivedKey).base64EncodedString()
     }
 
