@@ -57,13 +57,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
         checkInitialConnectedHeadsets()
 
-        if !SecurityManager.shared().isPasswordConfigured {
+        if !SecurityManager.shared.isPasswordConfigured {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 PreferencesWindowController.shared.showPreferences()
             }
         }
 
-        SecurityManager.shared().logEvent("App Started", details: "HeadsetGuard armed and monitoring", type: "system")
+        SecurityManager.shared.logEvent("App Started", details: "HeadsetGuard armed and monitoring", type: "system")
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
@@ -192,7 +192,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         activeDeviceID = deviceID
         activeHeadsetName = name.isEmpty ? "Bluetooth Headset" : name
 
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
 
         if !sm.isDeviceProtected(name) {
             NSLog("[AppDelegate] Device '%@' is not in protected list. Skipping lock.", name)
@@ -228,7 +228,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
                 NSLog("[AppDelegate] Audio unlocked successfully for '%@'", self.activeHeadsetName ?? "")
                 AudioGuard.shared().unlockCurrentDevice()
                 self.updateStatusIcon(.authorized)
-                SecurityManager.shared().logEvent("Unlocked",
+                SecurityManager.shared.logEvent("Unlocked",
                                                   details: "'\(self.activeHeadsetName ?? "Headset")' audio authorized",
                                                   type: "auth_success")
             } else {
@@ -246,7 +246,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         UnlockWindowController.shared.dismissWindow()
         updateStatusIcon(.idle)
 
-        SecurityManager.shared().logEvent("Headset Disconnected",
+        SecurityManager.shared.logEvent("Headset Disconnected",
                                           details: "'\(name)' disconnected",
                                           type: "disconnect")
     }
@@ -333,11 +333,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
     @objc private func workspaceWillSleep(_ note: Notification) {
         NSLog("[AppDelegate] System going to sleep.")
-        if SecurityManager.shared().boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) {
+        if SecurityManager.shared.boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) {
             if activeDeviceID != kAudioObjectUnknown && AudioGuard.shared().isBluetoothDevice(activeDeviceID) {
                 AudioGuard.shared().lockDevice(activeDeviceID)
                 updateStatusIcon(.locked)
-                SecurityManager.shared().logEvent("Sleep Lock", details: "System sleeping -> Headset audio locked", type: "sleep_lock")
+                SecurityManager.shared.logEvent("Sleep Lock", details: "System sleeping -> Headset audio locked", type: "sleep_lock")
             }
         }
     }
@@ -358,11 +358,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
     @objc private func sessionDidResignActive(_ note: Notification) {
         NSLog("[AppDelegate] User session resigned active (screen lock).")
-        if SecurityManager.shared().boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) {
+        if SecurityManager.shared.boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) {
             if activeDeviceID != kAudioObjectUnknown && AudioGuard.shared().isBluetoothDevice(activeDeviceID) {
                 AudioGuard.shared().lockDevice(activeDeviceID)
                 updateStatusIcon(.locked)
-                SecurityManager.shared().logEvent("Screen Lock", details: "Screen locked -> Headset audio locked", type: "sleep_lock")
+                SecurityManager.shared.logEvent("Screen Lock", details: "Screen locked -> Headset audio locked", type: "sleep_lock")
             }
         }
     }
@@ -388,7 +388,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     }
 
     public func audioGuardDidInterceptVolumeTamper(onDevice deviceID: AudioDeviceID) {
-        SecurityManager.shared().logEvent("Volume Tamper Intercepted",
+        SecurityManager.shared.logEvent("Volume Tamper Intercepted",
                                           details: "Headset physical volume button pressed while locked; forced re-mute",
                                           type: "tamper")
     }

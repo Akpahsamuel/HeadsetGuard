@@ -47,7 +47,7 @@ public struct CLIRunner {
             let rawDefName = ag.deviceName(forID: defID)
             let defName = rawDefName.isEmpty ? "Unknown" : rawDefName
             let isBT = ag.isBluetoothDevice(defID)
-            let sm = SecurityManager.shared()
+            let sm = SecurityManager.shared
 
             print("=== HeadsetGuard Status ===")
             print("Master Password Configured: \(sm.isPasswordConfigured ? "YES" : "NO (First-time setup needed)")")
@@ -127,7 +127,7 @@ public struct CLIRunner {
             if let input = readPasswordInput() {
                 let newPass = input.trimmingCharacters(in: .whitespacesAndNewlines)
                 do {
-                    try SecurityManager.shared().setupMasterPassword(newPass)
+                    try SecurityManager.shared.setupMasterPassword(newPass)
                     print("Master PIN/Password successfully configured!")
                     return 0
                 } catch {
@@ -139,7 +139,7 @@ public struct CLIRunner {
 
         case .logs:
             print("=== Recent Security Audit Logs ===")
-            let logs = SecurityManager.shared().recentLogs()
+            let logs = SecurityManager.shared.recentLogs()
             if logs.isEmpty {
                 print("No log entries recorded yet.")
             } else {

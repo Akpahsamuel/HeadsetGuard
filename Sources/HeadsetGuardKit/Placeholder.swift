@@ -1,3 +1,1 @@
-// Placeholder for HeadsetGuardKit module
-import Foundation
-
+@_exported import Foundation

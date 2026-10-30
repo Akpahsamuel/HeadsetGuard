@@ -45,7 +45,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
         super.init(window: window)
 
-        let initialDevices = SecurityManager.shared().protectedDevices()
+        let initialDevices = SecurityManager.shared.protectedDevices()
         selectedDevices = Set(initialDevices)
         setupUI()
     }
@@ -87,7 +87,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
     private func createGeneralTabView() -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 410))
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
 
         var y: CGFloat = 370.0
 
@@ -171,7 +171,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
     private func createPasswordTabView() -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 410))
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
 
         var y: CGFloat = 370.0
         let header = NSTextField(frame: NSRect(x: 20, y: y, width: 480, height: 24))
@@ -251,7 +251,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
     private func createDevicesTabView() -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 410))
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
 
         var y: CGFloat = 370.0
         let header = NSTextField(frame: NSRect(x: 20, y: y, width: 480, height: 24))
@@ -376,7 +376,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     @objc private func settingChanged(_ sender: Any?) {
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
         sm.setBoolSetting(kSecuritySettingAutoLockOnConnect, value: autoLockCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingStrictMute, value: strictMuteCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingLockOnSleep, value: lockOnSleepCheckbox.state == .on)
@@ -392,12 +392,12 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
     @objc private func protectAllToggled(_ sender: Any?) {
         let protectAll = (protectAllCheckbox.state == .on)
-        SecurityManager.shared().setBoolSetting(kSecuritySettingProtectAllBluetooth, value: protectAll)
+        SecurityManager.shared.setBoolSetting(kSecuritySettingProtectAllBluetooth, value: protectAll)
         devicesTableView.reloadData()
     }
 
     @objc private func savePasswordClicked(_ sender: Any?) {
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
         let curr = currentPasswordField.stringValue
         let newP = freshPasswordField.stringValue
         let conf = confirmPasswordField.stringValue
@@ -436,7 +436,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     @objc private func clearLogsClicked(_ sender: Any?) {
-        SecurityManager.shared().clearLogs()
+        SecurityManager.shared.clearLogs()
         reloadLogs()
     }
 
@@ -446,7 +446,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     private func reloadLogs() {
-        logs = SecurityManager.shared().recentLogs() as? [[String: Any]] ?? []
+        logs = SecurityManager.shared.recentLogs()
         logTableView?.reloadData()
     }
 
@@ -472,7 +472,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
             if colId == "check" {
                 let check = NSButton(checkboxWithTitle: "", target: self, action: #selector(deviceCheckToggled(_:)))
                 check.tag = row
-                let protectAll = SecurityManager.shared().boolSetting(kSecuritySettingProtectAllBluetooth, defaultValue: true)
+                let protectAll = SecurityManager.shared.boolSetting(kSecuritySettingProtectAllBluetooth, defaultValue: true)
                 if protectAll {
                     check.state = .on
                     check.isEnabled = false
@@ -524,6 +524,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
             selectedDevices.remove(name)
         }
 
-        SecurityManager.shared().setProtectedDevices(Array(selectedDevices))
+        SecurityManager.shared.setProtectedDevices(Array(selectedDevices))
     }
 }

@@ -26,7 +26,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
     private var attemptPolicy: UnlockAttemptPolicy
 
     public init() {
-        let maxAttempts = SecurityManager.shared().integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
+        let maxAttempts = SecurityManager.shared.integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
         self.attemptPolicy = UnlockAttemptPolicy(maxAttempts: maxAttempts)
 
         let windowRect = NSRect(x: 0, y: 0, width: 420, height: 410)
@@ -179,7 +179,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         self.deviceName = resolvedName
         self.onCompletion = completion
 
-        let maxAttempts = SecurityManager.shared().integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
+        let maxAttempts = SecurityManager.shared.integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
         self.attemptPolicy = UnlockAttemptPolicy(maxAttempts: maxAttempts)
 
         self.deviceLabel.stringValue = "Device: \(resolvedName)"
@@ -192,7 +192,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         self.iconImageView.image = NSImage(systemSymbolName: "lock.shield.fill", accessibilityDescription: "Security")
         self.iconImageView.contentTintColor = .systemOrange
 
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
         self.touchIDButton.isHidden = !sm.biometricsAvailable
 
         self.window?.center()
@@ -225,7 +225,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
 
     @objc private func unlockAction(_ sender: Any?) {
         let entered = passwordField.stringValue
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
 
         if !sm.isPasswordConfigured {
             if entered.count < 4 {
@@ -253,10 +253,10 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
     }
 
     @objc private func touchIDAction(_ sender: Any?) {
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
         let reason = "Authorize audio output for \(self.deviceName ?? "Bluetooth Headset")"
 
-        sm.authenticateWithBiometrics(withReason: reason) { [weak self] success, error in
+        sm.authenticateWithBiometrics(reason: reason) { [weak self] success, error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if success {
@@ -272,7 +272,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
 
     @objc private func disconnectAction(_ sender: Any?) {
         let target = self.deviceName ?? "Bluetooth Headset"
-        SecurityManager.shared().logEvent("Manual Disconnect",
+        SecurityManager.shared.logEvent("Manual Disconnect",
                                           details: "User rejected and disconnected \(target)",
                                           type: "disconnect")
 
@@ -304,7 +304,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         NSSound(named: "Funk")?.play()
         shakeWindow()
 
-        let sm = SecurityManager.shared()
+        let sm = SecurityManager.shared
         let outcome = attemptPolicy.recordFailure()
 
         switch outcome {

@@ -52,7 +52,7 @@ let package = Package(
             dependencies: ["HeadsetGuardKit", "LegacyCore"],
             path: "Tests/HeadsetGuardKitTests",
             swiftSettings: [
-                .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"])
+                .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks", "-Xfrontend", "-disable-cross-import-overlays"])
             ],
             linkerSettings: [
                 .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks", "-Xlinker", "-rpath", "-Xlinker", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"])

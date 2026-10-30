@@ -4,7 +4,7 @@ APP_CONTENTS = $(APP_BUNDLE)/Contents
 APP_MACOS = $(APP_CONTENTS)/MacOS
 APP_RESOURCES = $(APP_CONTENTS)/Resources
 SWIFT_BUILD_BIN = .build/release/$(APP_NAME)
-TEST_FLAGS = -Xswiftc -F/Library/Developer/CommandLineTools/Library/Developer/Frameworks
+TEST_FLAGS = -Xswiftc -F/Library/Developer/CommandLineTools/Library/Developer/Frameworks -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays
 
 .PHONY: all build cli clean run test status list logs install
 

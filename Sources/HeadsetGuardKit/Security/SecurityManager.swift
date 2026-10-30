@@ -1,0 +1,215 @@
+import Foundation
+import LocalAuthentication
+import Security
+
+public let kSecuritySettingAutoLockOnConnect          = "AutoLockOnConnect"
+public let kSecuritySettingLockOnSleep                = "LockOnSleep"
+public let kSecuritySettingStrictMute                 = "StrictMute"
+public let kSecuritySettingBiometricsEnabled          = "BiometricsEnabled"
+public let kSecuritySettingMaxFailedAttempts          = "MaxFailedAttempts"
+public let kSecuritySettingAutoDisconnectOnFailure    = "AutoDisconnectOnFailure"
+public let kSecuritySettingProtectAllBluetooth        = "ProtectAllBluetooth"
+public let kSecuritySettingProtectedDevices           = "ProtectedDevices"
+
+private let kLegacyMasterPasswordHashKey = "MasterPasswordHash"
+private let kLegacyMasterPasswordSaltKey = "MasterPasswordSalt"
+
+@objc(SecurityManager)
+public final class SecurityManager: NSObject {
+
+    @objc(sharedManager)
+    public static let shared = SecurityManager()
+
+    private let store: CredentialStore
+    private let settings: SettingsStore
+    private var auditLog: AuditLog
+
+    @objc public var failedAttemptsCount: Int = 0
+
+    @objc public var isPasswordConfigured: Bool {
+        guard let creds = store.load() else { return false }
+        return !creds.hash.isEmpty && !creds.salt.isEmpty
+    }
+
+    @objc public var biometricsAvailable: Bool {
+        guard settings.bool(forKey: kSecuritySettingBiometricsEnabled, defaultValue: true) else {
+            return false
+        }
+        let context = LAContext()
+        var error: NSError?
+        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+    }
+
+    public init(store: CredentialStore, settings: SettingsStore, log: AuditLog) {
+        self.store = store
+        self.settings = settings
+        self.auditLog = log
+        super.init()
+        migrateLegacyCredentialsIfNeeded()
+    }
+
+    public convenience override init() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("HeadsetGuard")
+        let fileURL = dir.appendingPathComponent("audit_logs.json")
+
+        self.init(store: KeychainCredentialStore(),
+                  settings: UserDefaultsSettingsStore(),
+                  log: AuditLog(fileURL: fileURL))
+    }
+
+    private func migrateLegacyCredentialsIfNeeded() {
+        if let legacyHash = settings.string(forKey: kLegacyMasterPasswordHashKey),
+           let legacySalt = settings.data(forKey: kLegacyMasterPasswordSaltKey),
+           !legacyHash.isEmpty, !legacySalt.isEmpty {
+            if store.save(hash: legacyHash, salt: legacySalt) {
+                settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
+                settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
+            }
+        }
+    }
+
+    // MARK: - Password Management
+
+    @objc public func setupMasterPassword(_ password: String) throws {
+        if password.count < 4 {
+            throw NSError(domain: "HeadsetGuard",
+                          code: 1001,
+                          userInfo: [NSLocalizedDescriptionKey: "Password must be at least 4 characters long."])
+        }
+
+        guard let salt = PasswordHasher.makeSalt() else {
+            throw NSError(domain: "HeadsetGuard",
+                          code: 1003,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to generate security salt."])
+        }
+
+        let hash = PasswordHasher.hash(password, salt: salt)
+        guard store.save(hash: hash, salt: salt) else {
+            throw NSError(domain: "HeadsetGuard",
+                          code: 1003,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to save credentials to macOS Keychain."])
+        }
+
+        settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
+        settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
+
+        failedAttemptsCount = 0
+        logEvent("Password Set", details: "New master password configured in Keychain", type: "security")
+    }
+
+    @objc public func changePassword(from oldPassword: String, to newPassword: String) throws {
+        if !verifyPassword(oldPassword) {
+            throw NSError(domain: "HeadsetGuard",
+                          code: 1002,
+                          userInfo: [NSLocalizedDescriptionKey: "Current password is incorrect."])
+        }
+        try setupMasterPassword(newPassword)
+    }
+
+    @objc public func verifyPassword(_ password: String) -> Bool {
+        guard let creds = store.load() else {
+            return false
+        }
+
+        let testHash = PasswordHasher.hash(password, salt: creds.salt)
+        let valid = (testHash == creds.hash)
+
+        if valid {
+            failedAttemptsCount = 0
+            logEvent("Password Verified", details: "Authentication successful", type: "auth_success")
+        } else {
+            failedAttemptsCount += 1
+            logEvent("Password Failed", details: "Attempt \(failedAttemptsCount) failed", type: "auth_failure")
+        }
+        return valid
+    }
+
+    // MARK: - Biometrics
+
+    @objc(authenticateWithBiometricsWithReason:completion:)
+    public func authenticateWithBiometrics(reason: String, completion: @escaping (Bool, Error?) -> Void) {
+        let context = LAContext()
+        context.localizedFallbackTitle = "Use PIN/Password"
+
+        var policy: LAPolicy = .deviceOwnerAuthenticationWithBiometrics
+        var authError: NSError?
+        if !context.canEvaluatePolicy(policy, error: &authError) {
+            policy = .deviceOwnerAuthentication
+        }
+
+        context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self.failedAttemptsCount = 0
+                    self.logEvent("Biometrics Success", details: "Unlocked via Touch ID / Mac Auth", type: "auth_success")
+                } else if let error = error {
+                    self.logEvent("Biometrics Cancelled/Failed", details: error.localizedDescription, type: "auth_failure")
+                }
+                completion(success, error)
+            }
+        }
+    }
+
+    public func authenticateWithBiometrics(withReason reason: String, completion: @escaping (Bool, Error?) -> Void) {
+        authenticateWithBiometrics(reason: reason, completion: completion)
+    }
+
+    // MARK: - Settings
+
+    @objc(boolSetting:defaultValue:)
+    public func boolSetting(_ key: String, defaultValue: Bool) -> Bool {
+        return settings.bool(forKey: key, defaultValue: defaultValue)
+    }
+
+    @objc(setBoolSetting:value:)
+    public func setBoolSetting(_ key: String, value: Bool) {
+        settings.setBool(value, forKey: key)
+    }
+
+    @objc(integerSetting:defaultValue:)
+    public func integerSetting(_ key: String, defaultValue: Int) -> Int {
+        return settings.integer(forKey: key, defaultValue: defaultValue)
+    }
+
+    @objc(setIntegerSetting:value:)
+    public func setIntegerSetting(_ key: String, value: Int) {
+        settings.setInteger(value, forKey: key)
+    }
+
+    @objc public func protectedDevices() -> [String] {
+        return settings.stringArray(forKey: kSecuritySettingProtectedDevices)
+    }
+
+    @objc public func setProtectedDevices(_ devices: [String]) {
+        settings.setStringArray(devices, forKey: kSecuritySettingProtectedDevices)
+    }
+
+    @objc public func isDeviceProtected(_ deviceName: String?) -> Bool {
+        if boolSetting(kSecuritySettingProtectAllBluetooth, defaultValue: true) {
+            return true
+        }
+        guard let deviceName = deviceName, !deviceName.isEmpty else { return false }
+        let devices = protectedDevices()
+        for d in devices {
+            if deviceName.localizedCaseInsensitiveContains(d) || d.localizedCaseInsensitiveContains(deviceName) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // MARK: - Audit Logs
+
+    @objc public func logEvent(_ event: String, details: String, type: String) {
+        auditLog.append(event: event, details: details, type: type)
+    }
+
+    @objc public func recentLogs() -> [[String: Any]] {
+        return auditLog.recent()
+    }
+
+    @objc public func clearLogs() {
+        auditLog.clear()
+    }
+}
