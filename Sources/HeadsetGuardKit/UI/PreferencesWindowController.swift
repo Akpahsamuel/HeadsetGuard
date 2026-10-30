@@ -387,7 +387,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
             sm.setIntegerSetting(kSecuritySettingMaxFailedAttempts, value: attempts)
         }
 
-        AudioGuard.shared().strictMuteEnforcement = (strictMuteCheckbox.state == .on)
+        AudioGuard.shared.strictMuteEnforcement = (strictMuteCheckbox.state == .on)
     }
 
     @objc private func protectAllToggled(_ sender: Any?) {

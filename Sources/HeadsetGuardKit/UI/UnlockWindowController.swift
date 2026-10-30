@@ -277,7 +277,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
                                           type: "disconnect")
 
         BluetoothManager.shared.disconnectDevice(named: target)
-        AudioGuard.shared().routeAudioToBuiltIn()
+        AudioGuard.shared.routeAudioToBuiltIn()
         dismiss(unlocked: false)
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import CoreAudio
 import LegacyCore
 
 public struct CLIRunner {
@@ -42,7 +43,7 @@ public struct CLIRunner {
             return 0
 
         case .status:
-            let ag = AudioGuard.shared()
+            let ag = AudioGuard.shared
             let defID = ag.defaultOutputDeviceID()
             let rawDefName = ag.deviceName(forID: defID)
             let defName = rawDefName.isEmpty ? "Unknown" : rawDefName
@@ -76,7 +77,7 @@ public struct CLIRunner {
             }
 
             print("\n=== Active CoreAudio Output Devices ===")
-            let outputs = AudioGuard.shared().allOutputDevices()
+            let outputs = AudioGuard.shared.allOutputDevices()
             for info in outputs {
                 let devName = (info["name"] as? String) ?? "Unknown"
                 let devID = (info["id"] as? NSNumber)?.uint32Value ?? 0
@@ -87,7 +88,7 @@ public struct CLIRunner {
             return 0
 
         case .lock:
-            let ag = AudioGuard.shared()
+            let ag = AudioGuard.shared
             let defID = ag.defaultOutputDeviceID()
             if defID != kAudioObjectUnknown && ag.isBluetoothDevice(defID) {
                 let name = ag.deviceName(forID: defID)
@@ -100,7 +101,7 @@ public struct CLIRunner {
             }
 
         case .unlock:
-            let ag = AudioGuard.shared()
+            let ag = AudioGuard.shared
             if ag.isLocked {
                 ag.unlockCurrentDevice()
                 print("Successfully unlocked active Bluetooth headset.")
@@ -111,7 +112,7 @@ public struct CLIRunner {
             }
 
         case .disconnect:
-            let ag = AudioGuard.shared()
+            let ag = AudioGuard.shared
             let defID = ag.defaultOutputDeviceID()
             let name = ag.deviceName(forID: defID)
             if !name.isEmpty {
