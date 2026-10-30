@@ -1,7 +1,6 @@
 import AppKit
 import CoreAudio
 import IOBluetooth
-import LegacyCore
 
 public enum GuardStatus {
     case idle

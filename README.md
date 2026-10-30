@@ -40,7 +40,7 @@ Standard off-the-shelf Bluetooth headsets use fixed firmware pairing (typically 
   - **Protected Headsets List**: Choose "Protect All Bluetooth Audio Devices" or selectively choose specific paired headsets (e.g. your AirPods or Galaxy Buds).
   - **Activity & Audit Log**: Timestamped tracking of device connections, unlock attempts, volume tampering, and disconnections.
 - **Built-in CLI Utility**: Scriptable from Terminal (`headsetguard --status`, `--list`, `--lock`, `--disconnect`, etc.).
-- **Zero Third-Party Dependencies**: Pure native Apple Objective-C / CoreAudio / IOBluetooth / AppKit binary compiling with standard `clang`.
+- **Zero Third-Party Dependencies**: Pure native Swift 6 / SwiftPM / CoreAudio / IOBluetooth / AppKit binary compiling with standard Apple Command Line Tools.
 
 ---
 
@@ -107,21 +107,41 @@ make logs
 
 ```
 Headset_Security/
+├── Package.swift                     # SwiftPM package manifest (macOS 11+)
 ├── Makefile                          # Build system & packaging targets
 ├── LICENSE / CONTRIBUTING.md / SECURITY.md / CODE_OF_CONDUCT.md
 ├── .github/                          # CI workflow, issue & PR templates
 ├── resources/
 │   ├── Info.plist                    # App bundle metadata (LSUIElement agent)
 │   ├── AppIcon.icns                  # High-resolution macOS application icon
-│   └── generate_icon.m               # CoreGraphics vector icon generator
-└── src/
-    ├── main.m                        # Application entry point & CLI handler
-    ├── AppDelegate.h / .m            # StatusItem Menu Bar controller & lifecycle
-    ├── AudioGuard.h / .m             # CoreAudio listeners, volume clamping & mute loop
-    ├── BluetoothManager.h / .m       # IOBluetooth connection monitoring & drop logic
-    ├── SecurityManager.h / .m        # Salted PBKDF2 hashing, Touch ID, preferences & logs
-    ├── UnlockWindowController.h / .m # Dark glassmorphic modal unlock window
-    └── PreferencesWindowController.h / .m # Tabbed settings & device configuration UI
+│   └── generate_icon.m               # Standalone vector icon generator tool
+├── Sources/
+│   ├── HeadsetGuard/                 # Main executable bootstrap
+│   │   └── main.swift
+│   └── HeadsetGuardKit/              # Core framework
+│       ├── Audio/                    # AudioHAL protocol, CoreAudioHAL & AudioGuard
+│       │   ├── AudioHAL.swift
+│       │   └── AudioGuard.swift
+│       ├── Bluetooth/                # IOBluetooth connection monitoring & drop logic
+│       │   └── BluetoothManager.swift
+│       ├── Security/                 # Salted PBKDF2 hashing, Keychain & audit log
+│       │   ├── PasswordHasher.swift
+│       │   ├── CredentialStore.swift
+│       │   ├── SettingsStore.swift
+│       │   ├── AuditLog.swift
+│       │   └── SecurityManager.swift
+│       ├── App/                      # Menu bar controller & lock coordinator
+│       │   ├── AppDelegate.swift
+│       │   └── LockCoordinator.swift
+│       ├── UI/                       # Unlock dialog & preferences dashboard
+│       │   ├── UnlockWindowController.swift
+│       │   ├── UnlockAttemptPolicy.swift
+│       │   └── PreferencesWindowController.swift
+│       └── CLI/                      # Command parser & CLI runner
+│           ├── Command.swift
+│           └── CLIRunner.swift
+└── Tests/
+    └── HeadsetGuardKitTests/         # Swift Testing automated test suite
 ```
 
 ---

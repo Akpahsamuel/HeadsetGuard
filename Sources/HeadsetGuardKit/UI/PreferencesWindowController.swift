@@ -1,6 +1,5 @@
 import AppKit
 import IOBluetooth
-import LegacyCore
 
 @objc(PreferencesWindowController)
 public final class PreferencesWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {

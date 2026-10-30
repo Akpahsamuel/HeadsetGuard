@@ -1,5 +1,4 @@
 import Foundation
-import LegacyCore
 
 public protocol AudioControlling: AnyObject {
     var isLocked: Bool { get }
@@ -21,7 +20,7 @@ public protocol LinkDropping: AnyObject {
     func disconnect(deviceNamed: String) -> Bool
 }
 
-// Default conformances for LegacyCore Leaf classes
+// Protocol conformances
 extension AudioGuard: AudioControlling {}
 
 extension BluetoothManager: LinkDropping {

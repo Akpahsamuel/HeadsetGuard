@@ -1,7 +1,6 @@
 import AppKit
 import QuartzCore
 import LocalAuthentication
-import LegacyCore
 
 @objc(UnlockWindowController)
 public final class UnlockWindowController: NSWindowController, NSTextFieldDelegate {

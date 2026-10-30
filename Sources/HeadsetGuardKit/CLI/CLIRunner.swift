@@ -1,6 +1,5 @@
 import Foundation
 import CoreAudio
-import LegacyCore
 
 public struct CLIRunner {
     public init() {}

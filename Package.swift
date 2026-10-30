@@ -13,10 +13,9 @@ let package = Package(
     dependencies: [],
     targets: [
         .target(
-            name: "LegacyCore",
+            name: "HeadsetGuardKit",
             dependencies: [],
-            path: "Sources/LegacyCore",
-            publicHeadersPath: "include",
+            path: "Sources/HeadsetGuardKit",
             linkerSettings: [
                 .linkedFramework("Cocoa"),
                 .linkedFramework("CoreAudio"),
@@ -26,18 +25,10 @@ let package = Package(
                 .linkedFramework("QuartzCore"),
             ]
         ),
-        .target(
-            name: "HeadsetGuardKit",
-            dependencies: ["LegacyCore"],
-            path: "Sources/HeadsetGuardKit"
-        ),
         .executableTarget(
             name: "HeadsetGuard",
-            dependencies: ["LegacyCore", "HeadsetGuardKit"],
+            dependencies: ["HeadsetGuardKit"],
             path: "Sources/HeadsetGuard",
-            cSettings: [
-                .headerSearchPath("../LegacyCore/include")
-            ],
             linkerSettings: [
                 .linkedFramework("Cocoa"),
                 .linkedFramework("CoreAudio"),
@@ -49,7 +40,7 @@ let package = Package(
         ),
         .testTarget(
             name: "HeadsetGuardKitTests",
-            dependencies: ["HeadsetGuardKit", "LegacyCore"],
+            dependencies: ["HeadsetGuardKit"],
             path: "Tests/HeadsetGuardKitTests",
             swiftSettings: [
                 .unsafeFlags(["-F", "/Library/Developer/CommandLineTools/Library/Developer/Frameworks", "-Xfrontend", "-disable-cross-import-overlays"])
@@ -61,4 +52,3 @@ let package = Package(
     ],
     swiftLanguageModes: [.v5]
 )
-

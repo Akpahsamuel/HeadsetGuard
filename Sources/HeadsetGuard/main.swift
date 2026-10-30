@@ -1,6 +1,5 @@
 import AppKit
 import HeadsetGuardKit
-import LegacyCore
 
 let args = Array(CommandLine.arguments.dropFirst())
 let command = Command.parse(args)
