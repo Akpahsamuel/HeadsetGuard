@@ -72,6 +72,12 @@ make install
 ```
 This copies `HeadsetGuard.app` directly into `/Applications/HeadsetGuard.app`.
 
+Builds are signed with the hardened runtime using an ad-hoc identity by default. For a stable Keychain identity, pass your own certificate: `make build SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"`.
+
+To have HeadsetGuard restart automatically if it is killed (a normal **Quit** stays quit), run `make install-agent`; remove it with `make uninstall-agent`.
+
+If you forget the master PIN, use **Forgot PIN?** on the password tab in Preferences. It asks for your Mac password or Touch ID before letting you set a new one.
+
 ---
 
 ## 🖥 Terminal CLI Usage

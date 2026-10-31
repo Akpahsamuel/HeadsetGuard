@@ -143,4 +143,34 @@ struct SecurityManagerTests {
                                    log: AuditLog(fileURL: fileURL))
         #expect(zero.maxFailedAttempts == 1)
     }
+
+    @Test("A configured install whose credential disappears stays configured and ignores planted legacy values")
+    func testMissingCredentialFailsClosed() throws {
+        let store = InMemoryCredentialStore()
+        let settings = InMemorySettingsStore()
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = SecurityManager(store: store, settings: settings, log: AuditLog(fileURL: fileURL))
+        try manager.setupMasterPassword("correct-pin")
+
+        store.clear()
+        #expect(manager.isPasswordConfigured)
+        #expect(!manager.verifyPassword("anything-at-all"))
+
+        let legacy = InMemorySettingsStore(initial: ["MasterPasswordHash": "x", "MasterPasswordSalt": Data(0..<32)])
+        let relaunched = SecurityManager(store: store, settings: settings, log: AuditLog(fileURL: fileURL), legacy: legacy)
+        #expect(try store.load() == nil)
+        #expect(relaunched.isPasswordConfigured)
+    }
+
+    @Test("Existing installs get the configured marker on launch")
+    func testMarkerBackfill() throws {
+        let store = InMemoryCredentialStore(stored: ("h", Data(repeating: 1, count: 32)))
+        let settings = InMemorySettingsStore()
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        _ = SecurityManager(store: store, settings: settings, log: AuditLog(fileURL: fileURL))
+        store.clear()
+        #expect(settings.bool(forKey: "CredentialConfigured", defaultValue: false))
+    }
 }

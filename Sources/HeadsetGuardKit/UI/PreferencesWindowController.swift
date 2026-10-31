@@ -234,6 +234,14 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         passwordStatusLabel.alignment = .center
         view.addSubview(passwordStatusLabel)
 
+        let btnReset = NSButton(title: "Forgot PIN? Reset with Mac password / Touch ID…",
+                                target: self,
+                                action: #selector(resetWithOwnerAuthClicked(_:)))
+        btnReset.frame = NSRect(x: 100, y: 24, width: 320, height: 28)
+        btnReset.bezelStyle = .rounded
+        btnReset.font = .systemFont(ofSize: 12)
+        view.addSubview(btnReset)
+
         return view
     }
 
@@ -461,6 +469,45 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         } catch {
             passwordStatusLabel.textColor = .systemRed
             passwordStatusLabel.stringValue = error.localizedDescription
+        }
+    }
+
+    @objc private func resetWithOwnerAuthClicked(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Reset Master PIN"
+        alert.informativeText = "Choose a new PIN (min \(SecurityManager.minimumPasswordLength) characters). You will then confirm with your Mac password or Touch ID."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 56))
+        let newField = NSSecureTextField(frame: NSRect(x: 0, y: 32, width: 240, height: 24))
+        newField.placeholderString = "New PIN / Password"
+        let confirmField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        confirmField.placeholderString = "Confirm new PIN / Password"
+        container.addSubview(newField)
+        container.addSubview(confirmField)
+        alert.accessoryView = container
+        alert.window.initialFirstResponder = newField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let newP = newField.stringValue
+        guard newP == confirmField.stringValue else {
+            passwordStatusLabel.textColor = .systemRed
+            passwordStatusLabel.stringValue = "New passwords do not match."
+            return
+        }
+
+        SecurityManager.shared.resetPasswordWithOwnerAuth(to: newP, reason: "Reset the HeadsetGuard master PIN") { [weak self] success, error in
+            guard let self = self else { return }
+            if success {
+                self.passwordStatusLabel.textColor = .systemGreen
+                self.passwordStatusLabel.stringValue = "Master PIN reset."
+                self.currentPasswordField.isEnabled = true
+            } else {
+                self.passwordStatusLabel.textColor = .systemRed
+                self.passwordStatusLabel.stringValue = error?.localizedDescription ?? "Reset cancelled."
+            }
         }
     }
 

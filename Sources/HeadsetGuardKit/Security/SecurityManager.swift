@@ -10,6 +10,8 @@ public let kSecuritySettingAutoDisconnectOnFailure    = "AutoDisconnectOnFailure
 public let kSecuritySettingProtectAllBluetooth        = "ProtectAllBluetooth"
 public let kSecuritySettingProtectedDevices           = "ProtectedDevices"
 
+private let kCredentialConfiguredKey = "CredentialConfigured"
+private let kAuditKeyKey = "AuditHMACKey"
 private let kFailedAttemptsKey = "FailedAttemptsCount"
 private let kLockoutUntilKey = "LockoutUntilEpoch"
 
@@ -24,7 +26,7 @@ public final class SecurityManager: NSObject {
 
     private let store: CredentialStore
     private let settings: SettingsStore
-    private var auditLog: AuditLog
+    private let auditLog: AuditLog
 
     public static let minimumPasswordLength = 6
     private static let baseLockoutSeconds = 30
@@ -83,7 +85,16 @@ public final class SecurityManager: NSObject {
 
     @objc public var isPasswordConfigured: Bool {
         do {
-            guard let creds = try store.load() else { return false }
+            guard let creds = try store.load() else {
+                // A PIN was set before but the stored credential is gone: someone removed it.
+                // Stay configured (fail closed) so first-run setup can't be used to take over;
+                // the owner can recover with resetPasswordWithOwnerAuth.
+                if settings.bool(forKey: kCredentialConfiguredKey, defaultValue: false) {
+                    NSLog("[SecurityManager] Credential missing from Keychain but previously configured. Failing closed.")
+                    return true
+                }
+                return false
+            }
             return !creds.hash.isEmpty && !creds.salt.isEmpty
         } catch {
             // Keychain read error: FAIL CLOSED.
@@ -103,12 +114,14 @@ public final class SecurityManager: NSObject {
         return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
     }
 
-    public init(store: CredentialStore, settings: SettingsStore, log: AuditLog) {
+    /// `legacy` is where pre-Keychain credentials may still sit (UserDefaults); defaults to `settings`.
+    public init(store: CredentialStore, settings: SettingsStore, log: AuditLog, legacy: SettingsStore? = nil) {
         self.store = store
         self.settings = settings
         self.auditLog = log
         super.init()
-        migrateLegacyCredentialsIfNeeded()
+        migrateLegacyCredentialsIfNeeded(from: legacy ?? settings)
+        recordCredentialMarkerIfNeeded()
     }
 
     public convenience override init() {
@@ -116,12 +129,30 @@ public final class SecurityManager: NSObject {
         let dir = appSupport.appendingPathComponent("HeadsetGuard")
         let fileURL = dir.appendingPathComponent("audit_logs.json")
 
+        // Settings (including lockout counters) live in the Keychain, not UserDefaults.
+        let secure = SecureSettingsStore(backend: KeychainBlobBackend(), legacyDefaults: .standard)
+
+        var auditKey = secure.data(forKey: kAuditKeyKey)
+        if auditKey == nil, let fresh = PasswordHasher.makeSalt() {
+            // Stored as base64 text because the settings blob is JSON.
+            secure.setString(fresh.base64EncodedString(), forKey: kAuditKeyKey)
+            auditKey = fresh
+        }
+
         self.init(store: KeychainCredentialStore(),
-                  settings: UserDefaultsSettingsStore(),
-                  log: AuditLog(fileURL: fileURL))
+                  settings: secure,
+                  log: AuditLog(fileURL: fileURL, hmacKey: auditKey),
+                  legacy: UserDefaultsSettingsStore())
     }
 
-    private func migrateLegacyCredentialsIfNeeded() {
+    private func recordCredentialMarkerIfNeeded() {
+        if !settings.bool(forKey: kCredentialConfiguredKey, defaultValue: false),
+           let creds = try? store.load(), !creds.hash.isEmpty {
+            settings.setBool(true, forKey: kCredentialConfiguredKey)
+        }
+    }
+
+    private func migrateLegacyCredentialsIfNeeded(from legacy: SettingsStore) {
         // Never let UserDefaults values replace a credential already in the store,
         // and don't migrate if the store can't be read (fail closed).
         let existing: (hash: String, salt: Data)?
@@ -131,16 +162,19 @@ public final class SecurityManager: NSObject {
             return
         }
         if existing != nil {
-            settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
-            settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
+            legacy.removeObject(forKey: kLegacyMasterPasswordHashKey)
+            legacy.removeObject(forKey: kLegacyMasterPasswordSaltKey)
             return
         }
-        if let legacyHash = settings.string(forKey: kLegacyMasterPasswordHashKey),
-           let legacySalt = settings.data(forKey: kLegacyMasterPasswordSaltKey),
+        // A cleared credential for an installation that was already configured must not be
+        // silently replaced by planted legacy values.
+        if settings.bool(forKey: kCredentialConfiguredKey, defaultValue: false) { return }
+        if let legacyHash = legacy.string(forKey: kLegacyMasterPasswordHashKey),
+           let legacySalt = legacy.data(forKey: kLegacyMasterPasswordSaltKey),
            !legacyHash.isEmpty, !legacySalt.isEmpty {
             if store.save(hash: legacyHash, salt: legacySalt) {
-                settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
-                settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
+                legacy.removeObject(forKey: kLegacyMasterPasswordHashKey)
+                legacy.removeObject(forKey: kLegacyMasterPasswordSaltKey)
             }
         }
     }
@@ -167,9 +201,7 @@ public final class SecurityManager: NSObject {
                           userInfo: [NSLocalizedDescriptionKey: "Failed to save credentials to macOS Keychain."])
         }
 
-        settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
-        settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
-
+        settings.setBool(true, forKey: kCredentialConfiguredKey)
         clearFailures()
         logEvent("Password Set", details: "New master password configured in Keychain", type: "security")
     }
@@ -181,6 +213,40 @@ public final class SecurityManager: NSObject {
                           userInfo: [NSLocalizedDescriptionKey: "Current password is incorrect."])
         }
         try setupMasterPassword(newPassword)
+    }
+
+    /// Recovery path for a lost or removed PIN: the Mac's owner (login password / Touch ID /
+    /// Apple Watch) authorizes setting a new one. Works even if the stored credential is gone.
+    @objc public func resetPasswordWithOwnerAuth(to newPassword: String,
+                                                 reason: String,
+                                                 completion: @escaping (Bool, Error?) -> Void) {
+        if newPassword.count < Self.minimumPasswordLength {
+            completion(false, NSError(domain: "HeadsetGuard", code: 1001,
+                                      userInfo: [NSLocalizedDescriptionKey: "Password must be at least \(Self.minimumPasswordLength) characters long."]))
+            return
+        }
+        let context = LAContext()
+        var authError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &authError) else {
+            completion(false, authError)
+            return
+        }
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+            DispatchQueue.main.async {
+                guard success else {
+                    self.logEvent("PIN Reset Denied", details: "Owner authentication failed or cancelled", type: "auth_failure")
+                    completion(false, error)
+                    return
+                }
+                do {
+                    try self.setupMasterPassword(newPassword)
+                    self.logEvent("PIN Reset", details: "Master PIN reset using Mac owner authentication", type: "security")
+                    completion(true, nil)
+                } catch {
+                    completion(false, error)
+                }
+            }
+        }
     }
 
     private func constantTimeCompare(_ a: String, _ b: String) -> Bool {
@@ -306,6 +372,10 @@ public final class SecurityManager: NSObject {
 
     @objc public func logEvent(_ event: String, details: String, type: String) {
         auditLog.append(event: event, details: details, type: type)
+    }
+
+    public func auditIntegrity() -> AuditLog.Integrity {
+        return auditLog.verify()
     }
 
     @objc public func recentLogs() -> [[String: Any]] {

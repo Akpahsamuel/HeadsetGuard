@@ -143,6 +143,11 @@ public struct CLIRunner {
 
         case .logs:
             print("=== Recent Security Audit Logs ===")
+            switch SecurityManager.shared.auditIntegrity() {
+            case .valid: print("Integrity: OK (HMAC chain verified)")
+            case .unsigned: print("Integrity: not verifiable (no signed entries)")
+            case .broken(let idx): print("Integrity: WARNING - log has been tampered with (first bad entry: #\(idx + 1) from newest)")
+            }
             let logs = SecurityManager.shared.recentLogs()
             if logs.isEmpty {
                 print("No log entries recorded yet.")
