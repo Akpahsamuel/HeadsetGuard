@@ -18,11 +18,11 @@ public struct CLIRunner {
         print("  HeadsetGuard --help          Show this help message\n")
     }
 
-    private func readPasswordInput() -> String? {
-        if isatty(STDIN_FILENO) != 0, let passC = getpass("Enter new Master PIN or Password (min 4 characters): ") {
+    private func readPasswordInput(prompt: String = "Enter new Master PIN or Password (min 4 characters): ") -> String? {
+        if isatty(STDIN_FILENO) != 0, let passC = getpass(prompt) {
             return String(cString: passC)
         }
-        print("Enter new Master PIN or Password (min 4 characters): ", terminator: "")
+        print(prompt, terminator: "")
         fflush(stdout)
         guard let line = readLine(strippingNewline: true) else { return nil }
         return line
@@ -124,6 +124,14 @@ public struct CLIRunner {
             return 1
 
         case .setPassword:
+            let sm = SecurityManager.shared
+            if sm.isPasswordConfigured {
+                guard let current = readPasswordInput(prompt: "Enter CURRENT Master PIN or Password: ") else { return 1 }
+                guard sm.verifyPassword(current) else {
+                    print("Error: Current password is incorrect.")
+                    return 1
+                }
+            }
             if let input = readPasswordInput() {
                 let newPass = input.trimmingCharacters(in: .whitespacesAndNewlines)
                 do {

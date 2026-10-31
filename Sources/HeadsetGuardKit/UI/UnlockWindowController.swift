@@ -233,8 +233,13 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
                 return
             }
             do {
+                // Setting a PIN must not itself unlock: if the stored credential was
+                // wiped, this path would otherwise be a no-auth bypass.
                 try sm.setupMasterPassword(entered)
-                handleSuccessfulUnlock()
+                sm.logEvent("First-Run Setup", details: "PIN set from unlock window; audio remains locked", type: "security")
+                passwordField.stringValue = ""
+                errorLabel.textColor = .systemOrange
+                errorLabel.stringValue = "PIN saved. Enter it again to unlock."
                 return
             } catch {
                 errorLabel.stringValue = error.localizedDescription

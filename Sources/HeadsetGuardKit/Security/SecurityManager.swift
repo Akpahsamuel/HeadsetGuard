@@ -81,6 +81,19 @@ public final class SecurityManager: NSObject {
     }
 
     private func migrateLegacyCredentialsIfNeeded() {
+        // Never let UserDefaults values replace a credential already in the store,
+        // and don't migrate if the store can't be read (fail closed).
+        let existing: (hash: String, salt: Data)?
+        do {
+            existing = try store.load()
+        } catch {
+            return
+        }
+        if existing != nil {
+            settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
+            settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
+            return
+        }
         if let legacyHash = settings.string(forKey: kLegacyMasterPasswordHashKey),
            let legacySalt = settings.data(forKey: kLegacyMasterPasswordSaltKey),
            !legacyHash.isEmpty, !legacySalt.isEmpty {

@@ -374,7 +374,50 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         reloadLogs()
     }
 
+    // MARK: - Authorization for security-relevant changes
+
+    private var authorizedUntil: Date = .distantPast
+
+    /// Changing protection settings or clearing the audit log requires the master PIN
+    /// (cached briefly so a burst of toggles prompts once). Returns true when allowed.
+    private func authorizeChange() -> Bool {
+        let sm = SecurityManager.shared
+        guard sm.isPasswordConfigured else { return true }
+        if Date() < authorizedUntil { return true }
+
+        let alert = NSAlert()
+        alert.messageText = "Authentication Required"
+        alert.informativeText = "Enter the master PIN/password to change security settings."
+        alert.addButton(withTitle: "Authorize")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        guard sm.verifyPassword(field.stringValue) else { return false }
+        authorizedUntil = Date().addingTimeInterval(60)
+        return true
+    }
+
+    private func syncGeneralControlsFromSettings() {
+        let sm = SecurityManager.shared
+        autoLockCheckbox.state = sm.boolSetting(kSecuritySettingAutoLockOnConnect, defaultValue: true) ? .on : .off
+        strictMuteCheckbox.state = sm.boolSetting(kSecuritySettingStrictMute, defaultValue: true) ? .on : .off
+        lockOnSleepCheckbox.state = sm.boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) ? .on : .off
+        biometricsCheckbox.state = sm.boolSetting(kSecuritySettingBiometricsEnabled, defaultValue: true) ? .on : .off
+        autoDisconnectCheckbox.state = sm.boolSetting(kSecuritySettingAutoDisconnectOnFailure, defaultValue: true) ? .on : .off
+        maxAttemptsPopup.selectItem(withTitle: "\(sm.integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3))")
+        protectAllCheckbox.state = sm.boolSetting(kSecuritySettingProtectAllBluetooth, defaultValue: true) ? .on : .off
+        selectedDevices = Set(sm.protectedDevices())
+        devicesTableView?.reloadData()
+    }
+
     @objc private func settingChanged(_ sender: Any?) {
+        guard authorizeChange() else {
+            syncGeneralControlsFromSettings()
+            return
+        }
         let sm = SecurityManager.shared
         sm.setBoolSetting(kSecuritySettingAutoLockOnConnect, value: autoLockCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingStrictMute, value: strictMuteCheckbox.state == .on)
@@ -390,6 +433,10 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     @objc private func protectAllToggled(_ sender: Any?) {
+        guard authorizeChange() else {
+            syncGeneralControlsFromSettings()
+            return
+        }
         let protectAll = (protectAllCheckbox.state == .on)
         SecurityManager.shared.setBoolSetting(kSecuritySettingProtectAllBluetooth, value: protectAll)
         devicesTableView.reloadData()
@@ -435,6 +482,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     }
 
     @objc private func clearLogsClicked(_ sender: Any?) {
+        guard authorizeChange() else { return }
         SecurityManager.shared.clearLogs()
         reloadLogs()
     }
@@ -516,6 +564,11 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         guard row >= 0, row < pairedDevices.count else { return }
         let dev = pairedDevices[row]
         guard let name = dev.nameOrAddress else { return }
+
+        guard authorizeChange() else {
+            syncGeneralControlsFromSettings()
+            return
+        }
 
         if sender.state == .on {
             selectedDevices.insert(name)

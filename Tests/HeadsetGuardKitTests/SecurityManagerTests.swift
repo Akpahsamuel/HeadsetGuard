@@ -31,6 +31,24 @@ struct SecurityManagerTests {
         #expect(seededSettings.data(forKey: "MasterPasswordSalt") == nil)
     }
 
+    @Test("Legacy defaults never overwrite an existing stored credential")
+    func testLegacyMigrationDoesNotOverwriteExisting() throws {
+        let realSalt = Data(repeating: 7, count: 32)
+        let store = InMemoryCredentialStore(stored: ("realHash", realSalt))
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let planted = InMemorySettingsStore(initial: [
+            "MasterPasswordHash": "attackerHash",
+            "MasterPasswordSalt": Data(0..<32)
+        ])
+
+        _ = SecurityManager(store: store, settings: planted, log: AuditLog(fileURL: fileURL))
+
+        #expect(try store.load()?.hash == "realHash")
+        #expect(try store.load()?.salt == realSalt)
+        #expect(planted.string(forKey: "MasterPasswordHash") == nil)
+    }
+
     @Test("Password verification updates failedAttemptsCount properly")
     func testFailedAttemptsCount() throws {
         let store = InMemoryCredentialStore()
