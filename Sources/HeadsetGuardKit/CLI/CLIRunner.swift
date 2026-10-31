@@ -10,15 +10,15 @@ public struct CLIRunner {
         print("  HeadsetGuard                 Run full menu bar application and security daemon")
         print("  HeadsetGuard --status        Show current audio and Bluetooth security status")
         print("  HeadsetGuard --list          List all detected Bluetooth headsets and paired devices")
-        print("  HeadsetGuard --lock          Manually lock current active Bluetooth headset")
-        print("  HeadsetGuard --unlock        Prompt to unlock active Bluetooth headset")
+        print("  HeadsetGuard --lock          One-shot mute of the active Bluetooth headset")
+        print("  HeadsetGuard --unlock        (Unsupported from CLI; unlock from the menu bar app)")
         print("  HeadsetGuard --disconnect    Disconnect active Bluetooth headset immediately")
-        print("  HeadsetGuard --set-password  Set or change master password from terminal")
+        print("  HeadsetGuard --set-password  Set or change master password (asks for current one)")
         print("  HeadsetGuard --logs          Display recent security audit log events")
         print("  HeadsetGuard --help          Show this help message\n")
     }
 
-    private func readPasswordInput(prompt: String = "Enter new Master PIN or Password (min 4 characters): ") -> String? {
+    private func readPasswordInput(prompt: String = "Enter new Master PIN or Password (min \(SecurityManager.minimumPasswordLength) characters): ") -> String? {
         if isatty(STDIN_FILENO) != 0, let passC = getpass(prompt) {
             return String(cString: passC)
         }
@@ -92,7 +92,8 @@ public struct CLIRunner {
             if defID != kAudioObjectUnknown && ag.isBluetoothDevice(defID) {
                 let name = ag.deviceName(forID: defID)
                 ag.lockDevice(defID)
-                print("Successfully locked and muted Bluetooth headset '\(name)' (ID: \(defID)).")
+                print("Muted Bluetooth headset '\(name)' (ID: \(defID)).")
+                print("Note: enforcement runs only inside the HeadsetGuard app; this one-shot mute is not re-applied if the volume is changed.")
                 return 0
             } else {
                 print("No active Bluetooth headset detected on default output to lock.")
@@ -100,15 +101,10 @@ public struct CLIRunner {
             }
 
         case .unlock:
-            let ag = AudioGuard.shared
-            if ag.isLocked {
-                ag.unlockCurrentDevice()
-                print("Successfully unlocked active Bluetooth headset.")
-                return 0
-            } else {
-                print("No locked Bluetooth headset to unlock.")
-                return 0
-            }
+            // Unlocking requires authentication and the running app's enforcement state, so it is
+            // intentionally not available from the CLI.
+            print("Unlocking is only available from the HeadsetGuard menu bar app (requires authentication).")
+            return 1
 
         case .disconnect:
             let ag = AudioGuard.shared
@@ -133,7 +129,7 @@ public struct CLIRunner {
                 }
             }
             if let input = readPasswordInput() {
-                let newPass = input.trimmingCharacters(in: .whitespacesAndNewlines)
+                let newPass = input
                 do {
                     try SecurityManager.shared.setupMasterPassword(newPass)
                     print("Master PIN/Password successfully configured!")

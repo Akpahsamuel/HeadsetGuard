@@ -75,7 +75,7 @@ struct SecurityManagerTests {
         #expect(manager.failedAttemptsCount == 0)
     }
 
-    @Test("Setup password rejects passwords shorter than 4 characters")
+    @Test("Setup password rejects passwords shorter than the minimum length")
     func testPasswordLengthValidation() {
         let store = InMemoryCredentialStore()
         let settings = InMemorySettingsStore()
@@ -86,7 +86,7 @@ struct SecurityManagerTests {
 
         let manager = SecurityManager(store: store, settings: settings, log: log)
         #expect(throws: NSError.self) {
-            try manager.setupMasterPassword("123")
+            try manager.setupMasterPassword("12345")
         }
     }
 
@@ -109,5 +109,38 @@ struct SecurityManagerTests {
         try manager.changePassword(from: "oldPass", to: "newPass")
         #expect(manager.verifyPassword("newPass"))
         #expect(!manager.verifyPassword("oldPass"))
+    }
+
+    @Test("Reaching the attempt limit starts a cooldown that blocks even the right password")
+    func testCooldownAfterMaxFailures() throws {
+        let store = InMemoryCredentialStore()
+        let settings = InMemorySettingsStore(initial: [kSecuritySettingMaxFailedAttempts: 3])
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = SecurityManager(store: store, settings: settings, log: AuditLog(fileURL: fileURL))
+        try manager.setupMasterPassword("correct-pin")
+
+        for _ in 0..<3 { #expect(!manager.verifyPassword("wrong-pin")) }
+        #expect(manager.lockoutRemaining() > 0)
+        #expect(!manager.verifyPassword("correct-pin"))
+
+        // A fresh manager over the same settings (e.g. app relaunch) is still locked out.
+        let relaunched = SecurityManager(store: store, settings: settings, log: AuditLog(fileURL: fileURL))
+        #expect(relaunched.lockoutRemaining() > 0)
+        #expect(!relaunched.verifyPassword("correct-pin"))
+    }
+
+    @Test("Tampered attempt limit is clamped")
+    func testAttemptLimitClamped() {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let huge = SecurityManager(store: InMemoryCredentialStore(),
+                                   settings: InMemorySettingsStore(initial: [kSecuritySettingMaxFailedAttempts: 1_000_000]),
+                                   log: AuditLog(fileURL: fileURL))
+        #expect(huge.maxFailedAttempts == 10)
+        let zero = SecurityManager(store: InMemoryCredentialStore(),
+                                   settings: InMemorySettingsStore(initial: [kSecuritySettingMaxFailedAttempts: 0]),
+                                   log: AuditLog(fileURL: fileURL))
+        #expect(zero.maxFailedAttempts == 1)
     }
 }

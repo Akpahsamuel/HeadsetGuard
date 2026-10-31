@@ -35,7 +35,7 @@ Standard off-the-shelf Bluetooth headsets use fixed firmware pairing (typically 
   - Custom Master PIN / Password (salted SHA-256 PBKDF2 with 310,000 iterations, stored in the macOS Keychain)
   - Touch ID / Apple Watch / macOS User authentication via `LocalAuthentication`
 - **Preferences & Security Dashboard**:
-  - **General**: Toggle auto-lock on connect, strict mute clamp, lock on sleep/screen-lock.
+  - **General**: Toggle auto-lock on connect and lock on sleep/screen-lock (changes require the master PIN).
   - **Password Management**: Set, update, or reset your master PIN.
   - **Protected Headsets List**: Choose "Protect All Bluetooth Audio Devices" or selectively choose specific paired headsets (e.g. your AirPods or Galaxy Buds).
   - **Activity & Audit Log**: Timestamped tracking of device connections, unlock attempts, volume tampering, and disconnections.

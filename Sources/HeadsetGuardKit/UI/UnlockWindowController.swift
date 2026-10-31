@@ -22,12 +22,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
     private var disconnectButton: NSButton!
     private var errorLabel: NSTextField!
 
-    private var attemptPolicy: UnlockAttemptPolicy
-
     public init() {
-        let maxAttempts = SecurityManager.shared.integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
-        self.attemptPolicy = UnlockAttemptPolicy(maxAttempts: maxAttempts)
-
         let windowRect = NSRect(x: 0, y: 0, width: 420, height: 410)
         let window = NSWindow(contentRect: windowRect,
                               styleMask: [.titled, .fullSizeContentView],
@@ -153,7 +148,7 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
 
         // Secondary Touch ID Button
         y -= 38.0
-        touchIDButton = NSButton(title: "Use Touch ID / Mac Password", target: self, action: #selector(touchIDAction(_:)))
+        touchIDButton = NSButton(title: "Use Touch ID", target: self, action: #selector(touchIDAction(_:)))
         touchIDButton.frame = NSRect(x: 50, y: y, width: width - 100, height: 32)
         touchIDButton.bezelStyle = .push
         touchIDButton.font = .systemFont(ofSize: 12)
@@ -178,12 +173,10 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         self.deviceName = resolvedName
         self.onCompletion = completion
 
-        let maxAttempts = SecurityManager.shared.integerSetting(kSecuritySettingMaxFailedAttempts, defaultValue: 3)
-        self.attemptPolicy = UnlockAttemptPolicy(maxAttempts: maxAttempts)
-
         self.deviceLabel.stringValue = "Device: \(resolvedName)"
         self.passwordField.stringValue = ""
         self.errorLabel.stringValue = ""
+        self.errorLabel.textColor = .systemRed
         self.statusBadge.stringValue = "AUDIO MUTED & LOCKED"
         self.statusBadge.textColor = .systemRed
         self.statusBadge.layer?.backgroundColor = NSColor(red: 1.0, green: 0.2, blue: 0.2, alpha: 0.18).cgColor
@@ -227,8 +220,8 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         let sm = SecurityManager.shared
 
         if !sm.isPasswordConfigured {
-            if entered.count < 4 {
-                errorLabel.stringValue = "First time setup: Enter a PIN/password (min 4 chars)"
+            if entered.count < SecurityManager.minimumPasswordLength {
+                errorLabel.stringValue = "First time setup: Enter a PIN/password (min \(SecurityManager.minimumPasswordLength) chars)"
                 shakeWindow()
                 return
             }
@@ -248,8 +241,16 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
             }
         }
 
+        let cooldown = sm.lockoutRemaining()
+        if cooldown > 0 {
+            errorLabel.textColor = .systemRed
+            errorLabel.stringValue = "Too many attempts. Try again in \(Int(cooldown.rounded(.up)))s."
+            passwordField.stringValue = ""
+            shakeWindow()
+            return
+        }
+
         if sm.verifyPassword(entered) {
-            attemptPolicy.reset()
             handleSuccessfulUnlock()
         } else {
             handleFailedAttempt()
@@ -264,9 +265,9 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if success {
-                    self.attemptPolicy.reset()
                     self.handleSuccessfulUnlock()
                 } else if let error = error as? NSError, error.code != Int(kLAErrorUserCancel) {
+                    self.errorLabel.textColor = .systemRed
                     self.errorLabel.stringValue = "Touch ID verification failed"
                     self.shakeWindow()
                 }
@@ -309,13 +310,16 @@ public final class UnlockWindowController: NSWindowController, NSTextFieldDelega
         shakeWindow()
 
         let sm = SecurityManager.shared
-        let outcome = attemptPolicy.recordFailure()
-
-        switch outcome {
+        // verifyPassword already persisted the failure; derive the outcome from that state.
+        let remaining = sm.maxFailedAttempts - sm.failedAttemptsCount
+        switch remaining > 0 ? UnlockAttemptPolicy.Outcome.retry(remaining: remaining) : .lockedOut {
         case .retry(let remaining):
             errorLabel.stringValue = "Incorrect password. \(remaining) attempt\(remaining == 1 ? "" : "s") remaining."
         case .lockedOut:
-            errorLabel.stringValue = "Security Limit Reached! Disconnecting..."
+            let wait = Int(sm.lockoutRemaining().rounded(.up))
+            errorLabel.stringValue = sm.boolSetting(kSecuritySettingAutoDisconnectOnFailure, defaultValue: true)
+                ? "Security Limit Reached! Disconnecting..."
+                : "Security Limit Reached! Locked for \(wait)s."
             if sm.boolSetting(kSecuritySettingAutoDisconnectOnFailure, defaultValue: true) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                     self?.disconnectAction(nil)

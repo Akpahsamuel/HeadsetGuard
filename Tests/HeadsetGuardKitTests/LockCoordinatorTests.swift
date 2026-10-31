@@ -149,4 +149,33 @@ struct LockCoordinatorTests {
         coordinator.deviceConnected(id: 42, name: "AirPods Pro")
         #expect(audio.lockCount == 1)
     }
+
+    @Test("onPromptResolved fires once on unlock and clears the active prompt")
+    func testPromptResolvedHook() {
+        let audio = FakeAudioController(), auth = FakeAuthenticator(), link = FakeLinkDropper()
+        let coordinator = LockCoordinator(audio: audio, auth: auth, link: link)
+        var results: [Bool] = []
+        coordinator.onPromptResolved = { results.append($0) }
+
+        coordinator.deviceConnected(id: 1, name: "Buds")
+        auth.pendingCompletion?(true)
+
+        #expect(results == [true])
+        #expect(!coordinator.isPromptActive)
+        #expect(audio.unlockCount == 1)
+    }
+
+    @Test("Disconnect while prompting resolves the prompt exactly once as rejected")
+    func testDisconnectResolvesOnce() {
+        let audio = FakeAudioController(), auth = FakeAuthenticator(), link = FakeLinkDropper()
+        let coordinator = LockCoordinator(audio: audio, auth: auth, link: link)
+        var results: [Bool] = []
+        coordinator.onPromptResolved = { results.append($0) }
+
+        coordinator.deviceConnected(id: 1, name: "Buds")
+        coordinator.deviceDisconnected(id: 1, name: "Buds")
+
+        #expect(results == [false])
+        #expect(!coordinator.isPromptActive)
+    }
 }

@@ -4,12 +4,14 @@ import Security
 
 public let kSecuritySettingAutoLockOnConnect          = "AutoLockOnConnect"
 public let kSecuritySettingLockOnSleep                = "LockOnSleep"
-public let kSecuritySettingStrictMute                 = "StrictMute"
 public let kSecuritySettingBiometricsEnabled          = "BiometricsEnabled"
 public let kSecuritySettingMaxFailedAttempts          = "MaxFailedAttempts"
 public let kSecuritySettingAutoDisconnectOnFailure    = "AutoDisconnectOnFailure"
 public let kSecuritySettingProtectAllBluetooth        = "ProtectAllBluetooth"
 public let kSecuritySettingProtectedDevices           = "ProtectedDevices"
+
+private let kFailedAttemptsKey = "FailedAttemptsCount"
+private let kLockoutUntilKey = "LockoutUntilEpoch"
 
 private let kLegacyMasterPasswordHashKey = "MasterPasswordHash"
 private let kLegacyMasterPasswordSaltKey = "MasterPasswordSalt"
@@ -24,20 +26,59 @@ public final class SecurityManager: NSObject {
     private let settings: SettingsStore
     private var auditLog: AuditLog
 
-    private let stateLock = NSLock()
-    private var _failedAttemptsCount: Int = 0
+    public static let minimumPasswordLength = 6
+    private static let baseLockoutSeconds = 30
+    private static let maxLockoutSeconds = 3600
 
+    private let stateLock = NSLock()
+
+    /// Persisted so reconnecting the headset or relaunching the app cannot reset it.
     @objc public var failedAttemptsCount: Int {
         get {
             stateLock.lock()
             defer { stateLock.unlock() }
-            return _failedAttemptsCount
+            return settings.integer(forKey: kFailedAttemptsKey, defaultValue: 0)
         }
         set {
             stateLock.lock()
             defer { stateLock.unlock() }
-            _failedAttemptsCount = newValue
+            settings.setInteger(newValue, forKey: kFailedAttemptsKey)
         }
+    }
+
+    /// Configured attempt limit, clamped so a tampered value can't disable lockout.
+    public var maxFailedAttempts: Int {
+        let v = settings.integer(forKey: kSecuritySettingMaxFailedAttempts, defaultValue: 3)
+        return min(max(v, 1), 10)
+    }
+
+    /// Seconds left in the current cooldown (0 when not locked out).
+    @objc public func lockoutRemaining() -> TimeInterval {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let until = settings.integer(forKey: kLockoutUntilKey, defaultValue: 0)
+        return max(0, TimeInterval(until) - Date().timeIntervalSince1970)
+    }
+
+    private func registerFailure() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let count = settings.integer(forKey: kFailedAttemptsKey, defaultValue: 0) + 1
+        settings.setInteger(count, forKey: kFailedAttemptsKey)
+        let limit = min(max(settings.integer(forKey: kSecuritySettingMaxFailedAttempts, defaultValue: 3), 1), 10)
+        if count >= limit {
+            // Exponential cooldown: 30s, 60s, 120s ... capped at 1h.
+            let exp = min(count - limit, 7)
+            let delay = min(Self.baseLockoutSeconds << exp, Self.maxLockoutSeconds)
+            settings.setInteger(Int(Date().timeIntervalSince1970) + delay, forKey: kLockoutUntilKey)
+        }
+    }
+
+    private func clearFailures() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        settings.setInteger(0, forKey: kFailedAttemptsKey)
+        settings.setInteger(0, forKey: kLockoutUntilKey)
     }
 
     @objc public var isPasswordConfigured: Bool {
@@ -107,10 +148,10 @@ public final class SecurityManager: NSObject {
     // MARK: - Password Management
 
     @objc public func setupMasterPassword(_ password: String) throws {
-        if password.count < 4 {
+        if password.count < Self.minimumPasswordLength {
             throw NSError(domain: "HeadsetGuard",
                           code: 1001,
-                          userInfo: [NSLocalizedDescriptionKey: "Password must be at least 4 characters long."])
+                          userInfo: [NSLocalizedDescriptionKey: "Password must be at least \(Self.minimumPasswordLength) characters long."])
         }
 
         guard let salt = PasswordHasher.makeSalt() else {
@@ -129,7 +170,7 @@ public final class SecurityManager: NSObject {
         settings.removeObject(forKey: kLegacyMasterPasswordHashKey)
         settings.removeObject(forKey: kLegacyMasterPasswordSaltKey)
 
-        failedAttemptsCount = 0
+        clearFailures()
         logEvent("Password Set", details: "New master password configured in Keychain", type: "security")
     }
 
@@ -153,12 +194,17 @@ public final class SecurityManager: NSObject {
     }
 
     @objc public func verifyPassword(_ password: String) -> Bool {
+        if lockoutRemaining() > 0 {
+            logEvent("Password Rejected", details: "Attempt during cooldown", type: "auth_failure")
+            return false
+        }
+
         let creds: (hash: String, salt: Data)?
         do {
             creds = try store.load()
         } catch {
             NSLog("[SecurityManager] Keychain error during verification: \(error)")
-            failedAttemptsCount += 1
+            registerFailure()
             logEvent("Password Failed", details: "Keychain read error: \(error.localizedDescription)", type: "auth_failure")
             return false
         }
@@ -171,10 +217,10 @@ public final class SecurityManager: NSObject {
         let valid = !testHash.isEmpty && constantTimeCompare(testHash, creds.hash)
 
         if valid {
-            failedAttemptsCount = 0
+            clearFailures()
             logEvent("Password Verified", details: "Authentication successful", type: "auth_success")
         } else {
-            failedAttemptsCount += 1
+            registerFailure()
             logEvent("Password Failed", details: "Attempt \(failedAttemptsCount) failed", type: "auth_failure")
         }
         return valid
@@ -185,18 +231,20 @@ public final class SecurityManager: NSObject {
     @objc(authenticateWithBiometricsWithReason:completion:)
     public func authenticateWithBiometrics(reason: String, completion: @escaping (Bool, Error?) -> Void) {
         let context = LAContext()
-        context.localizedFallbackTitle = "Use PIN/Password"
+        // Biometrics only: an empty fallback title hides the "Enter Password" button so the
+        // Mac login password can't stand in for the master PIN.
+        context.localizedFallbackTitle = ""
 
-        var policy: LAPolicy = .deviceOwnerAuthenticationWithBiometrics
         var authError: NSError?
-        if !context.canEvaluatePolicy(policy, error: &authError) {
-            policy = .deviceOwnerAuthentication
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
+            DispatchQueue.main.async { completion(false, authError) }
+            return
         }
 
-        context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+        context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    self.failedAttemptsCount = 0
+                    self.clearFailures()
                     self.logEvent("Biometrics Success", details: "Unlocked via Touch ID / Mac Auth", type: "auth_success")
                 } else if let error = error {
                     self.logEvent("Biometrics Cancelled/Failed", details: error.localizedDescription, type: "auth_failure")

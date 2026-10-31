@@ -54,8 +54,6 @@ public final class AudioGuard: NSObject {
     private var savedMute: Bool = false
     private var knownBluetoothDevices: Set<AudioDeviceID> = []
 
-    @objc public var strictMuteEnforcement: Bool = true
-
     @objc public var isLocked: Bool {
         get { guardQueue.sync { _isLocked } }
         set { guardQueue.sync { _isLocked = newValue } }
@@ -249,6 +247,7 @@ public final class AudioGuard: NSObject {
     public func unlockCurrentDevice() -> Bool {
         var devID: AudioDeviceID = AudioObjectID(kAudioObjectUnknown)
         var restoreVol: Float32 = 0.5
+        var restoreMute = false
 
         guardQueue.sync {
             if !_isLocked || _lockedDeviceID == AudioObjectID(kAudioObjectUnknown) {
@@ -260,6 +259,7 @@ public final class AudioGuard: NSObject {
 
             devID = _lockedDeviceID
             restoreVol = savedVolume
+            restoreMute = savedMute
             let name = _lockedDeviceName ?? "Unknown Device"
             NSLog("[AudioGuard] Unlocking audio device: '%@' (ID: %u)", name, devID)
 
@@ -271,7 +271,7 @@ public final class AudioGuard: NSObject {
         stopEnforceTimer()
 
         if devID != AudioObjectID(kAudioObjectUnknown) {
-            _ = hal.setMuted(false, devID)
+            _ = hal.setMuted(restoreMute, devID)
             _ = hal.setVolume(restoreVol, devID)
         }
 

@@ -93,13 +93,16 @@ public final class BluetoothManager: NSObject {
         guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else {
             return nil
         }
-        for dev in paired {
-            guard let devName = dev.nameOrAddress else { continue }
-            if devName.localizedCaseInsensitiveContains(name) || name.localizedCaseInsensitiveContains(devName) {
-                return dev
-            }
+        // Prefer an exact (case-insensitive) name match, then a unique fuzzy match.
+        // An ambiguous fuzzy match returns nil rather than risk acting on the wrong device.
+        let exact = paired.filter { ($0.nameOrAddress ?? "").caseInsensitiveCompare(name) == .orderedSame }
+        if let first = exact.first { return first }
+
+        let fuzzy = paired.filter {
+            guard let devName = $0.nameOrAddress else { return false }
+            return devName.localizedCaseInsensitiveContains(name) || name.localizedCaseInsensitiveContains(devName)
         }
-        return nil
+        return fuzzy.count == 1 ? fuzzy.first : nil
     }
 
     @objc(deviceWithAddress:)

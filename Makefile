@@ -6,7 +6,11 @@ APP_RESOURCES = $(APP_CONTENTS)/Resources
 SWIFT_BUILD_BIN = .build/release/$(APP_NAME)
 TEST_FLAGS = -Xswiftc -F/Library/Developer/CommandLineTools/Library/Developer/Frameworks -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays
 
-.PHONY: all build cli clean run test status list logs install
+.PHONY: all build cli clean run test status list logs install install-agent uninstall-agent
+
+SIGN_IDENTITY ?= -
+AGENT_LABEL = com.security.HeadsetGuard
+AGENT_PLIST = $(HOME)/Library/LaunchAgents/$(AGENT_LABEL).plist
 
 all: build
 
@@ -18,6 +22,8 @@ build:
 	@cp resources/Info.plist $(APP_CONTENTS)/Info.plist
 	@if [ -f resources/AppIcon.icns ]; then cp resources/AppIcon.icns $(APP_RESOURCES)/AppIcon.icns; fi
 	@chmod +x $(APP_MACOS)/$(APP_NAME)
+	@echo "==> Signing with hardened runtime (identity: $(SIGN_IDENTITY))..."
+	@codesign --force --options runtime --sign "$(SIGN_IDENTITY)" $(APP_BUNDLE)
 	@echo "==> Build successful: $(APP_BUNDLE)"
 
 test:
@@ -39,6 +45,18 @@ install: build
 	@echo "==> Installing $(APP_NAME) to /Applications..."
 	@cp -R $(APP_BUNDLE) /Applications/
 	@echo "==> Installed to /Applications/$(APP_NAME).app"
+
+install-agent: install
+	@mkdir -p $(HOME)/Library/LaunchAgents
+	@cp resources/$(AGENT_LABEL).plist $(AGENT_PLIST)
+	@launchctl bootout gui/$$(id -u) $(AGENT_PLIST) 2>/dev/null || true
+	@launchctl bootstrap gui/$$(id -u) $(AGENT_PLIST)
+	@echo "==> LaunchAgent installed: HeadsetGuard restarts if killed (normal Quit stays quit)"
+
+uninstall-agent:
+	@launchctl bootout gui/$$(id -u) $(AGENT_PLIST) 2>/dev/null || true
+	@rm -f $(AGENT_PLIST)
+	@echo "==> LaunchAgent removed"
 
 cli: build
 	@mkdir -p bin

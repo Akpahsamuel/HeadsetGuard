@@ -31,6 +31,28 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         let auth = UnlockWindowAdapter()
         let link = BluetoothManager.shared
         self.coordinator = LockCoordinator(audio: audio, auth: auth, link: link)
+        self.coordinator.onPromptResolved = { [weak self] unlocked in
+            self?.promptResolved(unlocked)
+        }
+    }
+
+    private var quitAfterUnlock = false
+
+    private func promptResolved(_ unlocked: Bool) {
+        if unlocked {
+            NSLog("[AppDelegate] Audio unlocked successfully for '%@'", activeHeadsetName ?? "")
+            updateStatusIcon(.authorized)
+            SecurityManager.shared.logEvent("Unlocked",
+                                            details: "'\(activeHeadsetName ?? "Headset")' audio authorized",
+                                            type: "auth_success")
+            if quitAfterUnlock {
+                quitAfterUnlock = false
+                NSApp.terminate(nil)
+            }
+        } else {
+            quitAfterUnlock = false
+            NSLog("[AppDelegate] Authorization rejected or failed for '%@'", activeHeadsetName ?? "")
+        }
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -220,21 +242,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         }
 
         coordinator.deviceConnected(id: deviceID, name: name)
-
-        // Observe when prompt resolves to update status item
-        UnlockWindowController.shared.onCompletion = { [weak self] unlocked in
-            guard let self = self else { return }
-            if unlocked {
-                NSLog("[AppDelegate] Audio unlocked successfully for '%@'", self.activeHeadsetName ?? "")
-                AudioGuard.shared.unlockCurrentDevice()
-                self.updateStatusIcon(.authorized)
-                SecurityManager.shared.logEvent("Unlocked",
-                                                  details: "'\(self.activeHeadsetName ?? "Headset")' audio authorized",
-                                                  type: "auth_success")
-            } else {
-                NSLog("[AppDelegate] Authorization rejected or failed for '%@'", self.activeHeadsetName ?? "")
-            }
-        }
     }
 
     private func handleHeadsetDisconnected(_ deviceID: AudioDeviceID, name: String) {
@@ -268,13 +275,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
             if coordinator.isPromptActive { return }
 
             coordinator.deviceConnected(id: devID, name: name)
-            UnlockWindowController.shared.onCompletion = { [weak self] unlocked in
-                guard let self = self else { return }
-                if unlocked {
-                    AudioGuard.shared.unlockCurrentDevice()
-                    self.updateStatusIcon(.authorized)
-                }
-            }
         }
     }
 
@@ -283,13 +283,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
         let name = activeHeadsetName ?? "Bluetooth Headset"
         coordinator.deviceConnected(id: activeDeviceID, name: name)
-        UnlockWindowController.shared.onCompletion = { [weak self] unlocked in
-            guard let self = self else { return }
-            if unlocked {
-                AudioGuard.shared.unlockCurrentDevice()
-                self.updateStatusIcon(.authorized)
-            }
-        }
     }
 
     @objc public func disconnectCurrentHeadset() {
@@ -327,10 +320,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
 
     @objc private func quitMenuClicked(_ sender: Any?) {
         if AudioGuard.shared.isLocked {
-            UnlockWindowController.shared.present(for: activeHeadsetName ?? "Bluetooth Headset") { unlocked in
-                if unlocked {
-                    NSApp.terminate(nil)
-                }
+            // Quitting a locked headset needs the same authentication as unlocking it.
+            quitAfterUnlock = true
+            if coordinator.isPromptActive {
+                UnlockWindowController.shared.window?.makeKeyAndOrderFront(nil)
+            } else {
+                unlockCurrentHeadset()
             }
             return
         }
@@ -354,13 +349,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         NSLog("[AppDelegate] System woke up.")
         if AudioGuard.shared.isLocked && !coordinator.isPromptActive {
             coordinator.systemWoke()
-            UnlockWindowController.shared.onCompletion = { [weak self] unlocked in
-                guard let self = self else { return }
-                if unlocked {
-                    AudioGuard.shared.unlockCurrentDevice()
-                    self.updateStatusIcon(.authorized)
-                }
-            }
         }
     }
 
@@ -388,10 +376,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     }
 
     public func audioGuardDidDetectDefaultOutputChanged(_ deviceID: AudioDeviceID, name: String, isBluetooth: Bool) {
-        if isBluetooth {
-            if currentStatus != .authorized && currentStatus != .locked && !coordinator.isPromptActive {
-                handleHeadsetConnected(deviceID, name: name)
-            }
+        // A different Bluetooth device becoming the default output must be treated as a
+        // new connection even if another headset is already authorized or locked.
+        if isBluetooth && (currentStatus == .idle || deviceID != activeDeviceID) {
+            handleHeadsetConnected(deviceID, name: name)
         }
     }
 

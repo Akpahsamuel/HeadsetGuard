@@ -11,7 +11,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
 
     // Tab 1 controls
     private var autoLockCheckbox: NSButton!
-    private var strictMuteCheckbox: NSButton!
     private var lockOnSleepCheckbox: NSButton!
     private var biometricsCheckbox: NSButton!
     private var autoDisconnectCheckbox: NSButton!
@@ -107,14 +106,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         view.addSubview(autoLockCheckbox)
 
         y -= 30.0
-        strictMuteCheckbox = NSButton(checkboxWithTitle: "Strict Mute Clamp: intercept and block physical volume buttons while locked",
-                                      target: self,
-                                      action: #selector(settingChanged(_:)))
-        strictMuteCheckbox.frame = NSRect(x: 24, y: y, width: 460, height: 22)
-        strictMuteCheckbox.state = sm.boolSetting(kSecuritySettingStrictMute, defaultValue: true) ? .on : .off
-        view.addSubview(strictMuteCheckbox)
-
-        y -= 30.0
         lockOnSleepCheckbox = NSButton(checkboxWithTitle: "Re-lock headset audio on Mac sleep or lock screen",
                                        target: self,
                                        action: #selector(settingChanged(_:)))
@@ -123,7 +114,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         view.addSubview(lockOnSleepCheckbox)
 
         y -= 30.0
-        biometricsCheckbox = NSButton(checkboxWithTitle: "Allow Touch ID / Apple Watch / Mac Password for quick unlock",
+        biometricsCheckbox = NSButton(checkboxWithTitle: "Allow Touch ID for quick unlock",
                                       target: self,
                                       action: #selector(settingChanged(_:)))
         biometricsCheckbox.frame = NSRect(x: 24, y: y, width: 460, height: 22)
@@ -213,7 +204,7 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         view.addSubview(lblNew)
 
         freshPasswordField = NSSecureTextField(frame: NSRect(x: 180, y: y, width: 260, height: 24))
-        freshPasswordField.placeholderString = "At least 4 characters"
+        freshPasswordField.placeholderString = "At least \(SecurityManager.minimumPasswordLength) characters"
         view.addSubview(freshPasswordField)
 
         y -= 36.0
@@ -403,7 +394,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     private func syncGeneralControlsFromSettings() {
         let sm = SecurityManager.shared
         autoLockCheckbox.state = sm.boolSetting(kSecuritySettingAutoLockOnConnect, defaultValue: true) ? .on : .off
-        strictMuteCheckbox.state = sm.boolSetting(kSecuritySettingStrictMute, defaultValue: true) ? .on : .off
         lockOnSleepCheckbox.state = sm.boolSetting(kSecuritySettingLockOnSleep, defaultValue: true) ? .on : .off
         biometricsCheckbox.state = sm.boolSetting(kSecuritySettingBiometricsEnabled, defaultValue: true) ? .on : .off
         autoDisconnectCheckbox.state = sm.boolSetting(kSecuritySettingAutoDisconnectOnFailure, defaultValue: true) ? .on : .off
@@ -420,7 +410,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         }
         let sm = SecurityManager.shared
         sm.setBoolSetting(kSecuritySettingAutoLockOnConnect, value: autoLockCheckbox.state == .on)
-        sm.setBoolSetting(kSecuritySettingStrictMute, value: strictMuteCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingLockOnSleep, value: lockOnSleepCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingBiometricsEnabled, value: biometricsCheckbox.state == .on)
         sm.setBoolSetting(kSecuritySettingAutoDisconnectOnFailure, value: autoDisconnectCheckbox.state == .on)
@@ -428,8 +417,6 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         if let selectedTitle = maxAttemptsPopup.titleOfSelectedItem, let attempts = Int(selectedTitle), attempts > 0 {
             sm.setIntegerSetting(kSecuritySettingMaxFailedAttempts, value: attempts)
         }
-
-        AudioGuard.shared.strictMuteEnforcement = (strictMuteCheckbox.state == .on)
     }
 
     @objc private func protectAllToggled(_ sender: Any?) {
@@ -448,9 +435,9 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
         let newP = freshPasswordField.stringValue
         let conf = confirmPasswordField.stringValue
 
-        if newP.count < 4 {
+        if newP.count < SecurityManager.minimumPasswordLength {
             passwordStatusLabel.textColor = .systemRed
-            passwordStatusLabel.stringValue = "New password must be at least 4 characters."
+            passwordStatusLabel.stringValue = "New password must be at least \(SecurityManager.minimumPasswordLength) characters."
             return
         }
         if newP != conf {

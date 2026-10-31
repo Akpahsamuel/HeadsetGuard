@@ -103,7 +103,7 @@ public final class KeychainCredentialStore: CredentialStore {
 
         let updateAttributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
 
         // Try updating existing item in-place first (atomic - old password is NOT deleted)
@@ -116,7 +116,7 @@ public final class KeychainCredentialStore: CredentialStore {
         if updateStatus == errSecItemNotFound {
             var addAttributes = query
             addAttributes[kSecValueData as String] = data
-            addAttributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            addAttributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let addStatus = SecItemAdd(addAttributes as CFDictionary, nil)
             return addStatus == errSecSuccess
         }

@@ -30,7 +30,5 @@
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>
     <string>HeadsetGuard monitors connected Bluetooth headsets to enforce password protection and audio lock.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>HeadsetGuard controls system audio to enforce headset lock.</string>
 </dict>
 </plist>

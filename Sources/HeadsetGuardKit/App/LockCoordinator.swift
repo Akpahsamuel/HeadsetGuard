@@ -52,6 +52,11 @@ public final class LockCoordinator {
 
     private var activeCompletion: ((Bool) -> Void)?
 
+    /// Called once whenever a prompt resolves (unlock, rejection, or disconnect), after the
+    /// coordinator has updated its own state. Lets the app react without touching the
+    /// window controller's completion, which the coordinator owns.
+    public var onPromptResolved: ((Bool) -> Void)?
+
     public init(audio: AudioControlling, auth: Authenticating, link: LinkDropping) {
         self.audio = audio
         self.auth = auth
@@ -70,6 +75,10 @@ public final class LockCoordinator {
             return
         }
 
+        beginPrompt(name: name)
+    }
+
+    private func beginPrompt(name: String) {
         isPromptActive = true
         activeCompletion = { [weak self] unlocked in
             guard let self = self else { return }
@@ -78,6 +87,7 @@ public final class LockCoordinator {
             if unlocked {
                 _ = self.audio.unlockCurrentDevice()
             }
+            self.onPromptResolved?(unlocked)
         }
 
         auth.requestUnlock(deviceName: name) { [weak self] unlocked in
@@ -87,19 +97,8 @@ public final class LockCoordinator {
 
     public func systemWoke() {
         if audio.isLocked && !isPromptActive {
-            isPromptActive = true
             let name = activeDeviceName.isEmpty ? "Bluetooth Headset" : activeDeviceName
-            activeCompletion = { [weak self] unlocked in
-                guard let self = self else { return }
-                self.isPromptActive = false
-                self.activeCompletion = nil
-                if unlocked {
-                    _ = self.audio.unlockCurrentDevice()
-                }
-            }
-            auth.requestUnlock(deviceName: name) { [weak self] unlocked in
-                self?.activeCompletion?(unlocked)
-            }
+            beginPrompt(name: name)
         }
     }
 
@@ -117,9 +116,10 @@ public final class LockCoordinator {
 
         if isPromptActive {
             isPromptActive = false
-            auth.dismiss()
             let comp = activeCompletion
+            // Clear first so the window's own dismissal callback can't resolve the prompt twice.
             activeCompletion = nil
+            auth.dismiss()
             comp?(false)
         }
     }
