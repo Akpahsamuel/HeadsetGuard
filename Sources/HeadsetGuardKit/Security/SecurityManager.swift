@@ -59,7 +59,9 @@ public final class SecurityManager: NSObject {
         stateLock.lock()
         defer { stateLock.unlock() }
         let until = settings.integer(forKey: kLockoutUntilKey, defaultValue: 0)
-        return max(0, TimeInterval(until) - Date().timeIntervalSince1970)
+        // Cap at the maximum cooldown so a clock change or planted value can't lock the owner
+        // out for longer than the policy allows.
+        return min(max(0, TimeInterval(until) - Date().timeIntervalSince1970), TimeInterval(Self.maxLockoutSeconds))
     }
 
     private func registerFailure() {
@@ -141,7 +143,7 @@ public final class SecurityManager: NSObject {
 
         self.init(store: KeychainCredentialStore(),
                   settings: secure,
-                  log: AuditLog(fileURL: fileURL, hmacKey: auditKey),
+                  log: AuditLog(fileURL: fileURL, hmacKey: auditKey, headStore: secure),
                   legacy: UserDefaultsSettingsStore())
     }
 
@@ -296,6 +298,11 @@ public final class SecurityManager: NSObject {
 
     @objc(authenticateWithBiometricsWithReason:completion:)
     public func authenticateWithBiometrics(reason: String, completion: @escaping (Bool, Error?) -> Void) {
+        guard settings.bool(forKey: kSecuritySettingBiometricsEnabled, defaultValue: true) else {
+            DispatchQueue.main.async { completion(false, nil) }
+            return
+        }
+
         let context = LAContext()
         // Biometrics only: an empty fallback title hides the "Enter Password" button so the
         // Mac login password can't stand in for the master PIN.

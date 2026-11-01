@@ -89,8 +89,6 @@ public final class KeychainBlobBackend: SettingsBlobBackend {
 public final class SecureSettingsStore: SettingsStore {
     private let backend: SettingsBlobBackend
     private let lock = NSLock()
-    private var storage: [String: Any] = [:]
-    private var readFailed = false
 
     /// Keys imported from UserDefaults the first time the secure blob is created.
     public static let importableKeys = [
@@ -100,54 +98,55 @@ public final class SecureSettingsStore: SettingsStore {
 
     public init(backend: SettingsBlobBackend, legacyDefaults: UserDefaults? = nil) {
         self.backend = backend
+        guard let defaults = legacyDefaults else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        // Only import when no blob exists yet; a read error imports nothing.
         do {
-            if let data = try backend.load() {
-                if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    storage = obj
-                } else {
-                    NSLog("[SecureSettingsStore] Stored settings were corrupt; using secure defaults.")
-                }
-            } else if let defaults = legacyDefaults {
-                importLegacy(from: defaults)
-            }
+            guard try backend.load() == nil else { return }
+        } catch {
+            return
+        }
+        var imported: [String: Any] = [:]
+        for key in Self.importableKeys {
+            if let value = defaults.object(forKey: key) { imported[key] = value }
+        }
+        guard !imported.isEmpty, save(imported) else { return }
+        for key in Self.importableKeys { defaults.removeObject(forKey: key) }
+    }
+
+    /// The blob is re-read on every access (no cache) so the app and the CLI, which are
+    /// separate processes, always see each other's lockout counters and settings.
+    /// A failed read returns nil so callers fail closed to their defaults and never write.
+    private func read() -> [String: Any]? {
+        do {
+            guard let data = try backend.load() else { return [:] }
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { return obj }
+            NSLog("[SecureSettingsStore] Stored settings were corrupt; using secure defaults.")
+            return [:]
         } catch {
             NSLog("[SecureSettingsStore] Could not read settings (\(error)); failing closed to defaults.")
-            readFailed = true
+            return nil
         }
     }
 
-    private func importLegacy(from defaults: UserDefaults) {
-        var imported = false
-        for key in Self.importableKeys {
-            if let value = defaults.object(forKey: key) {
-                storage[key] = value
-                imported = true
-            }
-        }
-        guard imported else { return }
-        if persistLocked() {
-            for key in Self.importableKeys { defaults.removeObject(forKey: key) }
-        }
-    }
-
-    @discardableResult
-    private func persistLocked() -> Bool {
-        guard !readFailed else { return false }
-        guard let data = try? JSONSerialization.data(withJSONObject: storage) else { return false }
+    private func save(_ dict: [String: Any]) -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return false }
         return backend.save(data)
     }
 
     private func set(_ value: Any, forKey key: String) {
         lock.lock()
         defer { lock.unlock() }
-        storage[key] = value
-        persistLocked()
+        guard var dict = read() else { return }
+        dict[key] = value
+        _ = save(dict)
     }
 
     private func get(_ key: String) -> Any? {
         lock.lock()
         defer { lock.unlock() }
-        return storage[key]
+        return read()?[key]
     }
 
     public func bool(forKey key: String, defaultValue: Bool) -> Bool {
@@ -180,7 +179,7 @@ public final class SecureSettingsStore: SettingsStore {
     public func removeObject(forKey key: String) {
         lock.lock()
         defer { lock.unlock() }
-        guard storage.removeValue(forKey: key) != nil else { return }
-        persistLocked()
+        guard var dict = read(), dict.removeValue(forKey: key) != nil else { return }
+        _ = save(dict)
     }
 }

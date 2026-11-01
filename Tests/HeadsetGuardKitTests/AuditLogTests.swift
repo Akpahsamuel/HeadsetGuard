@@ -79,4 +79,27 @@ struct AuditLogTests {
         let attacker = AuditLog(fileURL: url, hmacKey: Data(repeating: 1, count: 32))
         #expect(attacker.verify() != .valid)
     }
+
+    @Test("Head record detects removal of the newest entries and of the whole file")
+    func testHeadDetectsTruncation() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("audit_head_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let head = InMemorySettingsStore()
+        let log = AuditLog(fileURL: url, hmacKey: Data(repeating: 3, count: 32), headStore: head)
+        for i in 1...3 { log.append(event: "E\(i)", details: "", type: "t") }
+        #expect(log.verify() == .valid)
+
+        let pristine = try Data(contentsOf: url)
+        var entries = log.recent()
+        entries.removeFirst()                       // drop newest; the rest of the chain is intact
+        try JSONSerialization.data(withJSONObject: entries).write(to: url)
+        #expect(log.verify() == .broken(at: 0))
+
+        try pristine.write(to: url)
+        try FileManager.default.removeItem(at: url)
+        #expect(log.verify() == .broken(at: 0))
+
+        log.clear()                                 // an authorized clear resets the head
+        #expect(log.verify() == .unsigned)
+    }
 }

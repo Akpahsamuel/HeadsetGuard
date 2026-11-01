@@ -15,13 +15,19 @@ public struct AuditLog {
     public let fileURL: URL
     public let limit: Int
     private let hmacKey: Data?
+    private let headStore: SettingsStore?
+    private static let headKey = "AuditHead"
 
     /// With an `hmacKey`, each entry carries `prev` (the hash of the entry before it) and `hash`
     /// (HMAC over prev + fields), so edits, deletions and forged entries show up in `verify()`.
-    public init(fileURL: URL, limit: Int = 500, hmacKey: Data? = nil) {
+    ///
+    /// With a `headStore` (tamper-resistant settings), the newest entry's hash is also recorded
+    /// there, so deleting the newest entries or the whole file is detected too.
+    public init(fileURL: URL, limit: Int = 500, hmacKey: Data? = nil, headStore: SettingsStore? = nil) {
         self.fileURL = fileURL
         self.limit = limit
         self.hmacKey = hmacKey
+        self.headStore = headStore
     }
 
     private func entryHash(prev: String, timestamp: String, event: String, details: String, type: String) -> String? {
@@ -71,6 +77,9 @@ public struct AuditLog {
             try? data.write(to: fileURL, options: .atomic)
             // Owner-only: the log records device names and authentication events.
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            if let hash = entry["hash"] {
+                headStore?.setString(hash, forKey: Self.headKey)
+            }
         }
     }
 
@@ -87,6 +96,10 @@ public struct AuditLog {
     public func verify() -> Integrity {
         guard hmacKey != nil else { return .unsigned }
         let logs = recent()
+
+        if let head = headStore?.string(forKey: Self.headKey), logs.first?["hash"] != head {
+            return .broken(at: 0)   // newest entries or the whole file were removed or replaced
+        }
         guard logs.contains(where: { $0["hash"] != nil }) else { return .unsigned }
 
         var sawSigned = false
@@ -114,5 +127,6 @@ public struct AuditLog {
 
     public func clear() {
         try? FileManager.default.removeItem(at: fileURL)
+        headStore?.removeObject(forKey: Self.headKey)
     }
 }

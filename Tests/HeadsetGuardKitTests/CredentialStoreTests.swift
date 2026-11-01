@@ -119,4 +119,16 @@ struct SecureSettingsStoreTests {
         let store = SecureSettingsStore(backend: InMemoryBlobBackend(blob: Data("garbage".utf8)))
         #expect(store.bool(forKey: "ProtectAllBluetooth", defaultValue: true) == true)
     }
+
+    @Test("Two stores over one backend see each other's writes (app and CLI processes)")
+    func testNoStaleCache() {
+        let backend = InMemoryBlobBackend()
+        let app = SecureSettingsStore(backend: backend)
+        let cli = SecureSettingsStore(backend: backend)
+        cli.setInteger(2, forKey: "FailedAttemptsCount")
+        #expect(app.integer(forKey: "FailedAttemptsCount", defaultValue: 0) == 2)
+        app.setBool(true, forKey: "CredentialConfigured")
+        cli.setInteger(3, forKey: "FailedAttemptsCount")
+        #expect(app.bool(forKey: "CredentialConfigured", defaultValue: false))
+    }
 }

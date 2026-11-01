@@ -37,6 +37,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     }
 
     private var quitAfterUnlock = false
+    private var quitAuthorized = false
+    private var quitPromptActive = false
+    private var systemShuttingDown = false
 
     private func promptResolved(_ unlocked: Bool) {
         if unlocked {
@@ -47,6 +50,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
                                             type: "auth_success")
             if quitAfterUnlock {
                 quitAfterUnlock = false
+                quitAuthorized = true
                 NSApp.terminate(nil)
             }
         } else {
@@ -74,6 +78,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
         let wsCenter = NSWorkspace.shared.notificationCenter
         wsCenter.addObserver(self, selector: #selector(workspaceWillSleep(_:)), name: NSWorkspace.willSleepNotification, object: nil)
         wsCenter.addObserver(self, selector: #selector(workspaceDidWake(_:)), name: NSWorkspace.didWakeNotification, object: nil)
+        wsCenter.addObserver(self, selector: #selector(systemWillPowerOff(_:)), name: NSWorkspace.willPowerOffNotification, object: nil)
         wsCenter.addObserver(self, selector: #selector(sessionDidResignActive(_:)), name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
 
         checkInitialConnectedHeadsets()
@@ -319,8 +324,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
     }
 
     @objc private func quitMenuClicked(_ sender: Any?) {
+        NSApp.terminate(nil)
+    }
+
+    // MARK: - Quit gate
+
+    @objc private func systemWillPowerOff(_ note: Notification) {
+        // Logout, restart and shutdown must never be blocked by the quit prompt.
+        systemShuttingDown = true
+    }
+
+    /// Every quit path (menu, Cmd-Q, AppleScript) lands here. Stopping the guard requires the PIN.
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitAuthorized || systemShuttingDown || !SecurityManager.shared.isPasswordConfigured {
+            return .terminateNow
+        }
+        if !quitPromptActive {
+            quitPromptActive = true
+            DispatchQueue.main.async { [weak self] in self?.requestQuitAuthorization() }
+        }
+        return .terminateCancel
+    }
+
+    private func requestQuitAuthorization() {
+        defer { quitPromptActive = false }
+
         if AudioGuard.shared.isLocked {
-            // Quitting a locked headset needs the same authentication as unlocking it.
+            // A locked headset is released through the normal unlock window (PIN or Touch ID).
             quitAfterUnlock = true
             if coordinator.isPromptActive {
                 UnlockWindowController.shared.window?.makeKeyAndOrderFront(nil)
@@ -329,7 +359,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, AudioGuardDeleg
             }
             return
         }
-        NSApp.terminate(nil)
+
+        if AuthPrompt.requestPIN(message: "Enter the master PIN/password to quit HeadsetGuard.") {
+            quitAuthorized = true
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: - System Sleep / Lock Notifications

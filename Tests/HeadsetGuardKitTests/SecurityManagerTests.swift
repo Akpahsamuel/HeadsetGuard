@@ -173,4 +173,28 @@ struct SecurityManagerTests {
         store.clear()
         #expect(settings.bool(forKey: "CredentialConfigured", defaultValue: false))
     }
+
+    @Test("A planted far-future lockout is capped at the policy maximum")
+    func testLockoutCap() {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let far = Int(Date().timeIntervalSince1970) + 10_000_000
+        let manager = SecurityManager(store: InMemoryCredentialStore(),
+                                      settings: InMemorySettingsStore(initial: ["LockoutUntilEpoch": far]),
+                                      log: AuditLog(fileURL: fileURL))
+        #expect(manager.lockoutRemaining() <= 3600)
+    }
+
+    @Test("Biometric auth is refused when the setting is off")
+    func testBiometricsSettingEnforced() async {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("audit_test_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let manager = SecurityManager(store: InMemoryCredentialStore(),
+                                      settings: InMemorySettingsStore(initial: [kSecuritySettingBiometricsEnabled: false]),
+                                      log: AuditLog(fileURL: fileURL))
+        let result = await withCheckedContinuation { cont in
+            manager.authenticateWithBiometrics(reason: "test") { ok, _ in cont.resume(returning: ok) }
+        }
+        #expect(result == false)
+    }
 }

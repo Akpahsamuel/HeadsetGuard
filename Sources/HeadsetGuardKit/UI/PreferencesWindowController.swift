@@ -380,22 +380,9 @@ public final class PreferencesWindowController: NSWindowController, NSTableViewD
     /// Changing protection settings or clearing the audit log requires the master PIN
     /// (cached briefly so a burst of toggles prompts once). Returns true when allowed.
     private func authorizeChange() -> Bool {
-        let sm = SecurityManager.shared
-        guard sm.isPasswordConfigured else { return true }
         if Date() < authorizedUntil { return true }
-
-        let alert = NSAlert()
-        alert.messageText = "Authentication Required"
-        alert.informativeText = "Enter the master PIN/password to change security settings."
-        alert.addButton(withTitle: "Authorize")
-        alert.addButton(withTitle: "Cancel")
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        guard sm.verifyPassword(field.stringValue) else { return false }
-        authorizedUntil = Date().addingTimeInterval(60)
+        guard AuthPrompt.requestPIN(message: "Enter the master PIN/password to change security settings.") else { return false }
+        if SecurityManager.shared.isPasswordConfigured { authorizedUntil = Date().addingTimeInterval(60) }
         return true
     }
 

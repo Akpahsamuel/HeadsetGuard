@@ -8,6 +8,7 @@ public protocol SettingsStore: AnyObject {
     func stringArray(forKey key: String) -> [String]
     func setStringArray(_ value: [String], forKey key: String)
     func string(forKey key: String) -> String?
+    func setString(_ value: String, forKey key: String)
     func data(forKey key: String) -> Data?
     func removeObject(forKey key: String)
 }
@@ -47,6 +48,10 @@ public final class UserDefaultsSettingsStore: SettingsStore {
 
     public func string(forKey key: String) -> String? {
         return defaults.string(forKey: key)
+    }
+
+    public func setString(_ value: String, forKey key: String) {
+        defaults.set(value, forKey: key)
     }
 
     public func data(forKey key: String) -> Data? {
@@ -91,6 +96,10 @@ public final class InMemorySettingsStore: SettingsStore {
 
     public func string(forKey key: String) -> String? {
         return storage[key] as? String
+    }
+
+    public func setString(_ value: String, forKey key: String) {
+        storage[key] = value
     }
 
     public func data(forKey key: String) -> Data? {
